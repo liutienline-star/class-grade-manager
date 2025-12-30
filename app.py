@@ -128,11 +128,11 @@ role = st.sidebar.radio("功能導覽：", ["學生專區 (成績錄入)", "老�
 # --- 5. 學生專區 ---
 if role == "學生專區 (成績錄入)":
     st.title("📝 學生成績錄入與自主檢核")
+    # 強制 ttl=0 讀取
     df_students = conn.read(spreadsheet=url, worksheet="學生名單", ttl=0)
     df_courses = conn.read(spreadsheet=url, worksheet="科目設定", ttl=0)
     df_grades_db = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
     
-    # 錄入區
     with st.container():
         with st.form("input_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
@@ -148,28 +148,34 @@ if role == "學生專區 (成績錄入)":
             if submit:
                 sid = to_int_val(df_students[df_students["姓名"] == name]["學號"].values[0])
                 new_row = pd.DataFrame([{"時間戳記": datetime.now().strftime("%Y-%m-%d %H:%M"), "學號": sid, "姓名": name, "科目": subject, "分數": int(score), "考試類別": etype, "考試範圍": exam_range}])
+                # 更新並強制清除快取
                 conn.update(spreadsheet=url, worksheet="成績資料", data=pd.concat([df_grades_db, new_row], ignore_index=True))
+                st.cache_data.clear() 
                 st.success(f"【錄入成功】{name} - {subject}")
                 st.rerun()
 
-    # 自主檢核區（修正與確認）
     st.markdown("---")
     st.subheader(f"🔍 「{name}」的最近錄入紀錄")
-    # 只篩選目前選擇學生的紀錄，並按時間排序
-    my_records = df_grades_db[df_grades_db["姓名"] == name].sort_values("時間戳記", ascending=False).head(5)
+    # 重新整理顯示邏輯，並套用 format_avg
+    my_records = df_grades_db[df_grades_db["姓名"] == name].sort_values("時間戳記", ascending=False).head(5).copy()
     
     if not my_records.empty:
-        st.write("如果你發現以下資料輸入錯誤，可以點擊下方的「撤回最後一筆」按鈕重新輸入。")
-        st.dataframe(my_records[["時間戳記", "科目", "考試類別", "分數", "考試範圍"]], hide_index=True, use_container_width=True)
+        st.write("如果你發現以下資料輸入錯誤，可以點擊下方的「撤回」按鈕。")
+        # 修正：套用分數格式化，消除 .0000
+        st.dataframe(my_records[["時間戳記", "科目", "考試類別", "分數", "考試範圍"]].style.format({"分數": format_avg}), hide_index=True, use_container_width=True)
         
-        # 撤回功能：刪除該學生在資料庫中的最後一筆紀錄
         if st.button(f"🗑️ 撤回並刪除「{name}」的最後一筆資料"):
-            # 找到該學生最新紀錄在原始資料表中的 index
-            latest_idx = my_records.index[0]
-            new_df = df_grades_db.drop(latest_idx)
-            conn.update(spreadsheet=url, worksheet="成績資料", data=new_df)
-            st.warning("資料已成功刪除，請重新輸入正確成績。")
-            st.rerun()
+            # 關鍵修正：刪除前重新抓取最新資料表，避免 index 錯位
+            fresh_df = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
+            target_records = fresh_df[fresh_df["姓名"] == name].sort_values("時間戳記", ascending=False)
+            
+            if not target_records.empty:
+                latest_idx = target_records.index[0]
+                new_df = fresh_df.drop(latest_idx)
+                conn.update(spreadsheet=url, worksheet="成績資料", data=new_df)
+                st.cache_data.clear() # 強制清快取
+                st.warning("資料已成功刪除。")
+                st.rerun()
     else:
         st.info("目前尚無你的錄入紀錄。")
 
@@ -265,6 +271,7 @@ else:
                 st_name = st.selectbox("查詢學生", df_stu["姓名"].tolist())
                 d_df = f_df[(f_df["姓名"] == st_name) & (f_df["考試類別"] == "平時考")].copy()
                 d_df = d_df[["時間戳記", "科目", "考試範圍", "分數"]].sort_values("時間戳記", ascending=False)
+                # 修正：再次確認顯示格式
                 st.dataframe(d_df.style.format({"分數": format_avg}), hide_index=True, use_container_width=True)
                 st.session_state['d_rpt'] = {"title": f"{st_name} 平時成績紀錄表", "df": d_df}
 
@@ -282,7 +289,7 @@ else:
                         s_score = target_student[target_student['科目'] == sub]['分數'].iloc[0]
                         sub_all_scores = class_data[class_data['科目'] == sub]['分數']
                         c_mean = sub_all_scores.mean()
-                        c_std = sub_all_scores.std() # 加入標準差
+                        c_std = sub_all_scores.std() 
                         stats_report.append(f"- {sub}: 個人得分={format_avg(s_score)}, 班平均={format_avg(c_mean)}, 班級標準差={format_avg(c_std)}")
                     
                     data_summary = "\n".join(stats_report)
@@ -301,7 +308,8 @@ else:
                 st.markdown(f"### {data['title']}")
                 formatted_df = data['df'].copy()
                 for col in formatted_df.columns:
-                    if formatted_df[col].dtype in [np.float64, np.int64]:
+                    # 修正：強制所有數值型列在輸出時都消除多餘 0
+                    if formatted_df[col].dtype in [np.float64, np.int64] or col == "分數":
                         formatted_df[col] = formatted_df[col].apply(format_avg)
                 st.table(formatted_df)
                 st.caption(f"生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M')}")

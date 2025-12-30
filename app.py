@@ -100,11 +100,9 @@ def get_grade_info(score):
     if score >= 41: return "B", 2
     return "C", 1
 
-# 修正：精準控制小數點並移除贅零
 def format_avg(val):
     try:
         f_val = float(val)
-        # 先四捨五入至兩位，再用 :g 去除末尾無意義的 0
         return f"{round(f_val, 2):g}"
     except: return "0"
 
@@ -257,11 +255,10 @@ else:
                 st_name = st.selectbox("查詢學生", df_stu["姓名"].tolist())
                 d_df = f_df[(f_df["姓名"] == st_name) & (f_df["考試類別"] == "平時考")].copy()
                 d_df = d_df[["時間戳記", "科目", "考試範圍", "分數"]].sort_values("時間戳記", ascending=False)
-                # 修正：直接在顯示前消除多餘 0
                 st.dataframe(d_df.style.format({"分數": format_avg}), hide_index=True, use_container_width=True)
                 st.session_state['d_rpt'] = {"title": f"{st_name} 平時成績紀錄表", "df": d_df}
 
-        # --- AI 診斷分析區 ---
+        # --- AI 診斷分析區 (加入標準差分析) ---
         with tabs[1]:
             st.subheader("🤖 AI 智慧分析報告")
             ai_name = st.selectbox("分析對象", df_stu["姓名"].tolist(), key="ai_sel")
@@ -274,15 +271,20 @@ else:
                     stats_report = []
                     for sub in target_student['科目'].unique():
                         s_score = target_student[target_student['科目'] == sub]['分數'].iloc[0]
-                        c_mean = class_data[class_data['科目'] == sub]['分數'].mean()
-                        stats_report.append(f"- {sub}: 個人得分={format_avg(s_score)}, 班平均={format_avg(c_mean)}")
+                        sub_all_scores = class_data[class_data['科目'] == sub]['分數']
+                        c_mean = sub_all_scores.mean()
+                        c_std = sub_all_scores.std() # 新增：計算標準差
+                        stats_report.append(f"- {sub}: 個人得分={format_avg(s_score)}, 班平均={format_avg(c_mean)}, 班級標準差={format_avg(c_std)}")
+                    
                     data_summary = "\n".join(stats_report)
-                    prompt = f"你是台灣的中學班導師，針對「{ai_name}」在「{filter_cat}」分析：\n\n【數據】\n{data_summary}\n\n任務：優劣分析、親師通訊建議。Markdown 格式。"
+                    # 提示詞中加入標準差的分析指引
+                    prompt = f"你是台灣的中學班導師，針對「{ai_name}」在「{filter_cat}」分析：\n\n【數據】\n{data_summary}\n\n任務：請結合「個人分數」、「班級平均」與「班級標準差」進行分析（標準差反映了班級分數的離散程度，請依此評估該生表現的穩定性與相對實力），並提供優劣分析與親師通訊建議。Markdown 格式。"
+                    
                     with st.spinner("AI 分析中..."):
                         res = model.generate_content(prompt)
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
 
-        # --- 7. 報表輸出中心 (修正版面與多餘 0) ---
+        # --- 7. 報表輸出中心 ---
         with tabs[2]:
             st.subheader("📥 報表輸出中心")
             rpt_type = st.radio("選擇要輸出的報表", ["個人段考成績單", "班級成績總表", "平時成績紀錄表"], horizontal=True)
@@ -292,14 +294,10 @@ else:
             if target_key in st.session_state:
                 data = st.session_state[target_key]
                 st.markdown(f"### {data['title']}")
-                # 修正：報表輸出前統一套用 format_avg，消除小數點下無意義的 0 並保留兩位
                 formatted_df = data['df'].copy()
                 for col in formatted_df.columns:
-                    # 針對數值型列進行格式化
                     if formatted_df[col].dtype in [np.float64, np.int64]:
                         formatted_df[col] = formatted_df[col].apply(format_avg)
-                
-                # 使用 container 確保表格在大視窗中正常展開
                 st.table(formatted_df)
                 st.caption(f"生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
             else:

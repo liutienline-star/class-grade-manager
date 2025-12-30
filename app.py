@@ -3,119 +3,119 @@ from streamlit_gsheets import GSheetsConnection
 import google.generativeai as genai
 import pandas as pd
 from datetime import datetime
+from fpdf import FPDF
+import io
 
-# --- 1. 頁面基本配置 ---
-st.set_page_config(page_title="班級成績 AI 管理系統", layout="wide", page_icon="🎓")
+# --- 1. 頁面配置 ---
+st.set_page_config(page_title="成績管理系統專業版", layout="wide", page_icon="🎓")
 
 # --- 2. 初始化連線與 AI ---
 try:
-    # Google Sheets 連線
     conn = st.connection("gsheets", type=GSheetsConnection)
     url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-
-    # Gemini AI 設定
     genai.configure(api_key=st.secrets["gemini"]["api_key"])
     model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    st.error(f"初始化失敗，請檢查 Secrets 設定: {e}")
+    st.error(f"連線失敗: {e}")
     st.stop()
 
-# --- 3. 側邊欄導覽 ---
-st.sidebar.title("🛠️ 功能選單")
-menu = st.sidebar.radio("請選擇操作：", ["成績錄入", "AI 智慧分析", "查看現有資料"])
+# --- 3. 權限管理邏輯 ---
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
 
-# --- 功能 A：成績錄入 ---
-if menu == "成績錄入":
-    st.header("📝 錄入新分數")
+st.sidebar.title("🔐 系統存取控制")
+role = st.sidebar.radio("請選擇身分：", ["學生專區 (成績錄入)", "老師專區 (管理與分析)"])
+
+# --- 4. 學生專區 (不需密碼) ---
+if role == "學生專區 (成績錄入)":
+    st.header("📝 學生個人成績錄入")
     
-    # 讀取基礎資料
     df_students = conn.read(spreadsheet=url, worksheet="學生名單", ttl=0)
     df_courses = conn.read(spreadsheet=url, worksheet="科目設定", ttl=0)
     df_grades = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
-    
-    with st.form("grade_form", clear_on_submit=True):
+
+    with st.form("student_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
-            name = st.selectbox("選擇學生", df_students["姓名"].tolist())
-            course = st.selectbox("選擇科目", df_courses["科目名稱"].tolist())
+            name = st.selectbox("請選擇你的姓名", df_students["姓名"].tolist())
+            course = st.selectbox("科目", df_courses["科目名稱"].tolist())
         with col2:
             score = st.number_input("分數", min_value=0.0, max_value=100.0, step=0.5)
             exam_type = st.selectbox("考試類別", ["小考", "期中考", "期末考"])
         
-        submit = st.form_submit_button("儲存成績至雲端")
+        submit = st.form_submit_button("確認提交成績")
         
         if submit:
             sid = df_students[df_students["姓名"] == name]["學號"].values[0]
             new_entry = pd.DataFrame([{
                 "時間戳記": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "學號": sid,
-                "姓名": name,
-                "科目": course,
-                "分數": score,
-                "考試類別": exam_type
+                "學號": sid, "姓名": name, "科目": course, "分數": score, "考試類別": exam_type
             }])
             updated_df = pd.concat([df_grades, new_entry], ignore_index=True)
             conn.update(spreadsheet=url, worksheet="成績資料", data=updated_df)
-            st.success(f"✅ {name} 的 {course} 成績已更新！")
-            st.balloons()
+            st.success(f"✅ {name} 的成績已送出！")
 
-# --- 功能 B：AI 智慧分析 ---
-elif menu == "AI 智慧分析":
-    st.header("🤖 Gemini AI 學習診斷")
+# --- 5. 老師專區 (需要密碼) ---
+else:
+    if not st.session_state['authenticated']:
+        st.header("🔑 老師身分驗證")
+        pwd = st.text_input("請輸入老師管理密碼：", type="password")
+        if st.button("登入"):
+            if pwd == st.secrets["teacher"]["password"]:
+                st.session_state['authenticated'] = True
+                st.rerun()
+            else:
+                st.error("密碼錯誤，請重新輸入。")
     
-    df_grades = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
-    df_students = conn.read(spreadsheet=url, worksheet="學生名單", ttl=0)
-    
-    target_student = st.selectbox("請選擇要分析的學生", df_students["姓名"].tolist())
-    
-    # 篩選該生所有成績
-    personal_grades = df_grades[df_grades["姓名"] == target_student]
-    
-    if personal_grades.empty:
-        st.warning("該學生目前尚無成績紀錄，無法分析。")
-    else:
-        st.write(f"📊 {target_student} 的成績歷史：")
-        st.dataframe(personal_grades[["科目", "分數", "考試類別"]], use_container_width=True)
-        
-        if st.button("✨ 生成 AI 學習建議報告"):
-            with st.spinner("AI 正在分析成績趨勢中..."):
-                # 建立傳給 AI 的內容
-                prompt = f"""
-                你是位專業導師。請分析『{target_student}』的成績，給予親切、具體的建議。
-                數據如下：
-                {personal_grades.to_string(index=False)}
-                
-                請輸出：
-                1. 整體表現評估 (優勢與劣勢)
-                2. 具體進步建議 (針對較弱學科)
-                3. 給家長的話 (鼓勵性質)
-                請用繁體中文，約 200 字。
-                """
-                response = model.generate_content(prompt)
-                report_text = response.text
-                
-                st.markdown("---")
-                st.subheader("💡 AI 分析結果")
-                st.write(report_text)
-                
-                # 自動備份到「AI分析紀錄」分頁
-                try:
-                    df_ai_log = conn.read(spreadsheet=url, worksheet="AI分析紀錄", ttl=0)
-                    new_log = pd.DataFrame([{
-                        "分析時間": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "學號": df_students[df_students["姓名"] == target_student]["學號"].values[0],
-                        "姓名": target_student,
-                        "AI分析內容": report_text
-                    }])
-                    updated_log = pd.concat([df_ai_log, new_log], ignore_index=True)
-                    conn.update(spreadsheet=url, worksheet="AI分析紀錄", data=updated_log)
-                    st.info("ℹ️ 分析結果已自動備份至試算表。")
-                except Exception as e:
-                    st.warning(f"備份失敗（但不影響顯示）：{e}")
+    if st.session_state['authenticated']:
+        st.sidebar.success("🔓 已登入管理模式")
+        if st.sidebar.button("登出"):
+            st.session_state['authenticated'] = False
+            st.rerun()
 
-# --- 功能 C：查看現有資料 ---
-elif menu == "查看現有資料":
-    st.header("📋 數據總覽")
-    sheet_name = st.selectbox("切換分頁", ["學生名單", "科目設定", "成績資料", "AI分析紀錄"])
-    df_view = conn.read(spreadsheet=url, worksheet=sheet_name, ttl=0)
-    st.dataframe(df_view, use_container_width=True)
+        teacher_menu = st.tabs(["🤖 AI 智慧分析", "📋 數據總覽", "📄 報表輸出"])
+
+        # A. AI 分析
+        with teacher_menu[0]:
+            st.subheader("AI 學習建議生成")
+            df_grades = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
+            df_students = conn.read(spreadsheet=url, worksheet="學生名單", ttl=0)
+            target = st.selectbox("分析對象", df_students["姓名"].tolist())
+            
+            personal_data = df_grades[df_grades["姓名"] == target]
+            if not personal_data.empty:
+                if st.button("產生 AI 分析報告"):
+                    with st.spinner("AI 運算中..."):
+                        prompt = f"你是位導師。請分析『{target}』的成績並給予200字建議：{personal_data.to_string(index=False)}"
+                        response = model.generate_content(prompt)
+                        st.markdown(response.text)
+                        st.session_state['last_report'] = response.text
+            else:
+                st.warning("無成績紀錄")
+
+        # B. 數據總覽
+        with teacher_menu[1]:
+            st.subheader("完整數據查看")
+            view_sheet = st.selectbox("選擇查看表單", ["學生名單", "成績資料", "AI分析紀錄"])
+            df_view = conn.read(spreadsheet=url, worksheet=view_sheet, ttl=0)
+            st.dataframe(df_view, use_container_width=True)
+
+        # C. 報表輸出 (新增功能)
+        with teacher_menu[2]:
+            st.subheader("導出報表檔案")
+            
+            # CSV 導出 (最保險且支援中文)
+            csv = df_view.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 下載目前檢視資料 (CSV格式)",
+                data=csv,
+                file_name=f"report_{datetime.now().strftime('%m%d')}.csv",
+                mime='text/csv',
+            )
+            
+            # PDF 簡易說明 (PDF 處理中文較複雜，需另掛字體，此處提供架構)
+            st.info("提示：CSV 格式最適合 Excel 開啟。若需 PDF 格式，建議直接列印網頁或使用下方的簡易產出器。")
+            
+            if 'last_report' in st.session_state:
+                if st.button("準備 PDF 內容"):
+                    st.text_area("報表預覽 (可複製)", st.session_state['last_report'], height=200)

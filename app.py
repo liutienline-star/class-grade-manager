@@ -18,7 +18,8 @@ DIST_LABELS = ["0-10", "10-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70
 st.markdown("""
     <style>
     .main { background-color: #fcfcfc; }
-    .block-container { max-width: 1350px; padding-top: 2rem; padding-bottom: 2rem; }
+    /* 修正：加大版面寬度至 1600px，確保報表不擠壓 */
+    .block-container { max-width: 1600px; padding-top: 2rem; padding-bottom: 2rem; }
     
     html, body, [class*="st-"] {
         font-size: 1.15rem; 
@@ -72,7 +73,6 @@ st.markdown("""
         color: #444444;
         font-weight: bold;
     }
-    /* 修正：優化總標示字體，防止較長字串擠壓 */
     .indicator-value {
         font-size: 1.45rem !important; 
         color: #0d6efd !important;
@@ -100,10 +100,12 @@ def get_grade_info(score):
     if score >= 41: return "B", 2
     return "C", 1
 
+# 修正：精準控制小數點並移除贅零
 def format_avg(val):
     try:
         f_val = float(val)
-        return f"{f_val:g}" # 修正：使用 :g 自動消除末尾多餘的 0
+        # 先四捨五入至兩位，再用 :g 去除末尾無意義的 0
+        return f"{round(f_val, 2):g}"
     except: return "0"
 
 def get_dist_dict(series):
@@ -280,7 +282,7 @@ else:
                         res = model.generate_content(prompt)
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
 
-        # --- 7. 報表輸出中心 (修正多餘 0) ---
+        # --- 7. 報表輸出中心 (修正版面與多餘 0) ---
         with tabs[2]:
             st.subheader("📥 報表輸出中心")
             rpt_type = st.radio("選擇要輸出的報表", ["個人段考成績單", "班級成績總表", "平時成績紀錄表"], horizontal=True)
@@ -290,11 +292,14 @@ else:
             if target_key in st.session_state:
                 data = st.session_state[target_key]
                 st.markdown(f"### {data['title']}")
-                # 修正：報表輸出前統一套用格式化，消除多餘 0
+                # 修正：報表輸出前統一套用 format_avg，消除小數點下無意義的 0 並保留兩位
                 formatted_df = data['df'].copy()
                 for col in formatted_df.columns:
+                    # 針對數值型列進行格式化
                     if formatted_df[col].dtype in [np.float64, np.int64]:
                         formatted_df[col] = formatted_df[col].apply(format_avg)
+                
+                # 使用 container 確保表格在大視窗中正常展開
                 st.table(formatted_df)
                 st.caption(f"生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
             else:

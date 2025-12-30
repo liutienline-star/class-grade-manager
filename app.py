@@ -4,119 +4,95 @@ import google.generativeai as genai
 import pandas as pd
 import numpy as np
 from datetime import datetime, date
-import pytz 
+import pytz # 處理台灣時區修正
 from collections import Counter
 import time
 
-# --- 1. 系統初始化配置 (升級至 1850px 極致寬屏，防止擠壓) ---
+# --- 1. 系統初始化配置 (加大至 1850px 並增加頂部間距防止 Tabs 切割) ---
 st.set_page_config(page_title="809班成績管理系統", layout="wide", page_icon="🏫")
 
-# 強制設定台灣時區 (維持原樣)
+# 強制設定台灣時區
 TW_TZ = pytz.timezone('Asia/Taipei')
 
 SUBJECT_ORDER = ["國文", "英文", "數學", "自然", "歷史", "地理", "公民"]
 SOC_COLS = ["歷史", "地理", "公民"]
 DIST_LABELS = ["0-10", "10-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70-80", "80-90", "90-100"]
 
-# --- 2. 視覺 CSS 強化 (解決切割、加大寬度、保留圖示) ---
+# --- 2. 完整視覺 CSS (修正 Tabs 裁切、加大寬度、美化 UI) ---
 st.markdown("""
     <style>
-    /* 全局背景與視窗加大 */
     .main { background-color: #fcfcfc; }
+    
+    /* 修正 1：加大寬度並增加頂部 padding，給分頁標籤呼吸空間 */
     .block-container { 
         max-width: 1850px; 
-        padding-top: 1.5rem; 
-        padding-left: 4rem; 
-        padding-right: 4rem; 
+        padding-top: 3.5rem !important; 
+        padding-left: 3rem; 
+        padding-right: 3rem; 
     }
     
-    /* 字體大小優化：防止縮放導致的切割 */
-    html, body, [class*="st-"] { 
-        font-size: 1.15rem; 
-        font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; 
+    html, body, [class*="st-"] { font-size: 1.15rem; font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; }
+    
+    /* 修正 2：核心修復 - 防止 Tabs (分頁) 文字與圖標被裁切 */
+    button[data-baseweb="tab"] {
+        height: 60px !important; /* 增加標籤高度 */
+        margin-top: 5px !important;
+        padding-top: 10px !important;
     }
-
-    /* 🛡️ 表格防切割核心邏輯 */
+    div[data-baseweb="tab-list"] {
+        gap: 8px !important;
+    }
+    div[data-testid="stMarkdownContainer"] p {
+        line-height: 1.6 !important;
+    }
+    
+    /* 修正 3：表格防擠壓 */
     div[data-testid="stDataFrame"] td, 
     div[data-testid="stDataFrame"] th {
-        white-space: nowrap !important; /* 強制不換行，解決切割問題 */
-        padding: 12px 20px !important;
+        white-space: nowrap !important;
     }
 
-    /* 容器：新暴力主義強化版 */
+    /* 容器與圖框 */
     .filter-container { 
-        background-color: #f1f3f6; 
-        padding: 30px; 
-        border-radius: 18px; 
-        border: 3px solid #2d3436; 
-        margin-bottom: 30px; 
-        box-shadow: 8px 8px 0px rgba(0,0,0,0.06); 
+        background-color: #f1f3f6; padding: 25px; border-radius: 15px; 
+        border: 3px solid #2d3436; margin-bottom: 25px; box-shadow: 6px 6px 0px rgba(0,0,0,0.05); 
     }
 
-    /* 成績指標卡 (Metric)：增加高度與內距防止數值切割 */
+    /* 成績指標卡 (Metric) */
     div[data-testid="stMetric"] { 
-        background-color: #ffffff; 
-        padding: 25px !important; 
-        border-radius: 15px; 
-        border: 3px solid #2d3436; 
-        box-shadow: 7px 7px 0px rgba(0,0,0,0.1); 
-        min-height: 160px; /* 固定高度防止擠壓 */
+        background-color: #ffffff; padding: 25px !important; border-radius: 14px; 
+        border: 3px solid #2d3436; box-shadow: 7px 7px 0px rgba(0,0,0,0.1);
+        min-height: 150px;
     }
-    div[data-testid="stMetricLabel"] { 
-        font-size: 1.3rem !important; 
-        font-weight: 800 !important; 
-        color: #444; 
-        margin-bottom: 10px;
-    }
-    div[data-testid="stMetricValue"] { 
-        font-size: 3.2rem !important; 
-        font-weight: 900 !important; 
-        color: #d63384 !important; 
-    }
+    div[data-testid="stMetricLabel"] { font-size: 1.3rem !important; font-weight: 800 !important; color: #444; }
+    div[data-testid="stMetricValue"] { font-size: 3rem !important; font-weight: 900 !important; color: #d63384 !important; }
 
-    /* 總標示方框：優化文字間距 */
+    /* 總標示專用立體方框 */
     .indicator-box { 
-        background-color: #ffffff; 
-        padding: 20px; 
-        border-radius: 15px; 
-        border: 3px solid #2d3436; 
-        text-align: center; 
-        box-shadow: 7px 7px 0px rgba(0,0,0,0.1);
-        min-height: 160px; 
-        display: flex; 
-        flex-direction: column; 
-        justify-content: center;
+        background-color: #ffffff; padding: 20px; border-radius: 14px; 
+        border: 3px solid #2d3436; text-align: center; box-shadow: 7px 7px 0px rgba(0,0,0,0.1);
+        min-height: 150px; display: flex; flex-direction: column; justify-content: center;
     }
     .indicator-label { font-size: 1.3rem; font-weight: 800; color: #444; margin-bottom: 5px; }
-    .indicator-value { font-size: 1.9rem; font-weight: 900; color: #0d6efd; letter-spacing: 1px; }
+    .indicator-value { font-size: 1.8rem; font-weight: 900; color: #0d6efd; }
 
-    /* AI 報告書：美化邊距與行高 */
+    /* AI 報告書樣式 */
     .report-card { 
-        background: #ffffff; 
-        padding: 40px; 
-        border: 3px solid #2d3436; 
-        border-radius: 22px; 
-        line-height: 2.1; 
-        box-shadow: 10px 10px 0px rgba(0,0,0,0.05); 
+        background: #ffffff; padding: 40px; border: 3px solid #2d3436; 
+        border-radius: 20px; line-height: 2.0; box-shadow: 8px 8px 0px rgba(0,0,0,0.05); 
     }
-    
-    /* 按鈕美化：保留原有圖示並增加點擊感 */
+
+    /* 按鈕美化 */
     .stButton>button {
         border: 3px solid #2d3436 !important;
         border-radius: 12px !important;
         font-weight: 800 !important;
-        padding: 0.5rem 2rem !important;
         box-shadow: 4px 4px 0px #2d3436 !important;
-        transition: all 0.1s;
-    }
-    .stButton>button:active {
-        transform: translate(2px, 2px);
-        box-shadow: 0px 0px 0px #2d3436 !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. 核心底層邏輯 (完全保留：精確度至小數後兩位、等級判定、社會整合) ---
+# --- 3. 核心底層邏輯 (維持原設定) ---
 def get_grade_info(score):
     if score >= 95: return "A++", 7
     if score >= 91: return "A+", 6
@@ -141,7 +117,7 @@ def get_dist_dict(series):
     bins = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 101]
     return pd.cut(series, bins=bins, labels=DIST_LABELS, right=False).value_counts().sort_index().to_dict()
 
-# --- 4. 初始化數據連線 (保持原樣) ---
+# --- 4. 初始化數據連線 (維持原設定) ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 url = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
@@ -151,11 +127,11 @@ if 'authenticated' not in st.session_state: st.session_state['authenticated'] = 
 if 'current_rpt_df' not in st.session_state: st.session_state['current_rpt_df'] = None
 if 'current_rpt_name' not in st.session_state: st.session_state['current_rpt_name'] = ""
 
-# --- 5. 功能切換 (保持原樣) ---
+# --- 5. 功能切換 (維持原設定) ---
 st.sidebar.markdown("## 🏫 809 班級管理")
 role = st.sidebar.radio("功能切換：", ["📝 學生：成績錄入", "📊 老師：統計報表"])
 
-# --- 6. 學生錄入介面 (保持原樣) ---
+# --- 6. 學生錄入介面 (維持原設定) ---
 if role == "📝 學生：成績錄入":
     st.title("📝 學生成績自主錄入")
     df_students = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
@@ -197,7 +173,7 @@ if role == "📝 學生：成績錄入":
                 conn.update(spreadsheet=url, worksheet="成績資料", data=st.session_state['df_grades'])
                 st.warning("資料已撤回！"); time.sleep(0.5); st.rerun()
 
-# --- 7. 老師專區 (保持原樣：社會整合、標示積點、標準差 AI 分析) ---
+# --- 7. 老師專區 (維持原設定) ---
 else:
     if not st.session_state['authenticated']:
         st.markdown('<div class="filter-container" style="max-width:400px; margin: 100px auto;">', unsafe_allow_html=True)

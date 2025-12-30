@@ -42,13 +42,12 @@ st.markdown("""
         font-weight: 900;
     }
 
-    /* 篩選與容器樣式 */
     .filter-container { 
         background-color: #f1f3f6; padding: 25px; border-radius: 15px; 
         border: 3px solid #2d3436; margin-bottom: 25px; box-shadow: 6px 6px 0px rgba(0,0,0,0.05); 
     }
 
-    /* 指標卡樣式 */
+    /* 指標卡與指標盒 */
     div[data-testid="stMetric"] { 
         background-color: #ffffff; padding: 25px !important; border-radius: 14px; 
         border: 3px solid #2d3436; box-shadow: 7px 7px 0px rgba(0,0,0,0.1);
@@ -64,14 +63,15 @@ st.markdown("""
     .indicator-label { font-size: 1.3rem; font-weight: 800; color: #444; }
     .indicator-value { font-size: 1.8rem; font-weight: 900; color: #0d6efd; }
 
-    /* AI 診斷報告書卡片 */
+    /* AI 報告書呈現區 */
     .report-card { 
         background: #ffffff !important; padding: 40px; border: 3px solid #2d3436; 
         border-radius: 20px; line-height: 2.1; box-shadow: 8px 8px 0px rgba(0,0,0,0.05); color: #2d3436 !important; 
     }
-    .report-card table { width: 100%; border-collapse: collapse; margin-bottom: 25px; margin-top: 10px; }
+    /* 確保 Markdown 表格在報告書中漂亮顯示 */
+    .report-card table { width: 100%; border-collapse: collapse; margin: 20px 0; }
     .report-card th, .report-card td { border: 2px solid #2d3436; padding: 12px; text-align: center; }
-    .report-card th { background-color: #f8f9fa; font-weight: 800; }
+    .report-card th { background-color: #f8f9fa; }
 
     .stButton>button { border: 3px solid #2d3436 !important; border-radius: 12px !important; font-weight: 800 !important; box-shadow: 4px 4px 0px #2d3436 !important; }
     </style>
@@ -141,20 +141,35 @@ if role == "📝 學生：成績錄入":
             conn.update(spreadsheet=url, worksheet="成績資料", data=st.session_state['df_grades'])
             st.success(f"🎊 錄入成功！系統時間：{now_tw}"); time.sleep(0.5); st.rerun()
 
+    # 即時資料更新與刪除選項
+    st.markdown("---")
+    st.subheader("🔍 最近 5 筆錄入動態")
+    my_records = st.session_state['df_grades'][st.session_state['df_grades']["姓名"] == name].copy()
+    if not my_records.empty:
+        my_records["時間戳記"] = pd.to_datetime(my_records["時間戳記"], errors='coerce')
+        display_df = my_records.dropna(subset=["時間戳記"]).sort_values("時間戳記", ascending=False).head(5)
+        st.dataframe(display_df[["時間戳記", "科目", "考試類別", "分數", "考試範圍"]], hide_index=True, use_container_width=True)
+        
+        if st.button("🗑️ 撤回最後一筆錄入"):
+            idx = st.session_state['df_grades'][st.session_state['df_grades']["姓名"] == name].index
+            if not idx.empty:
+                st.session_state['df_grades'] = st.session_state['df_grades'].drop(idx[-1]).reset_index(drop=True)
+                conn.update(spreadsheet=url, worksheet="成績資料", data=st.session_state['df_grades'])
+                st.warning("資料已撤回！"); time.sleep(0.5); st.rerun()
+
 # --- 7. 老師專區 ---
 else:
     if not st.session_state['authenticated']:
-        # 登入標題方框
+        # 標題方框：登入頁
         st.markdown('<div class="title-box">809班學生成績管理系統</div>', unsafe_allow_html=True)
-        
         st.markdown('<div class="filter-container" style="max-width:500px; margin: 0 auto;">', unsafe_allow_html=True)
         st.subheader("🔑 老師管理系統登入")
         pwd = st.text_input("請輸入管理密碼", type="password")
         if st.button("🔓 驗證並登入", use_container_width=True):
             if pwd == st.secrets["teacher"]["password"]: 
-                st.session_state['authenticated'] = True; st.rerun()
-            else:
-                st.error("密碼錯誤，請重新輸入")
+                st.session_state['authenticated'] = True
+                st.rerun()
+            else: st.error("密碼錯誤，請重新輸入")
         st.markdown('</div>', unsafe_allow_html=True)
     
     if st.session_state['authenticated']:
@@ -164,9 +179,8 @@ else:
         df_raw['日期'] = pd.to_datetime(df_raw['時間戳記'], errors='coerce').dt.date
 
         with tabs[0]: 
-            # 數據儀表板標題方框
+            # 標題方框：數據查詢中心
             st.markdown('<div class="title-box">809班學生成績管理系統 - 數據儀表板</div>', unsafe_allow_html=True)
-            
             st.markdown('<div class="filter-container">', unsafe_allow_html=True)
             c_d1, c_d2, c_d3 = st.columns([1, 1, 2])
             with c_d1: start_d = st.date_input("📅 開始日期", date(2025, 1, 1))
@@ -178,8 +192,8 @@ else:
 
             if mode == "個人段考成績單":
                 df_stu = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
-                t_s = st.selectbox("👤 學生姓名", df_stu["姓名"].tolist())
-                t_e = st.selectbox("📝 考試別", ["第一次段考", "第二次段考", "第三次段考"])
+                t_s = st.selectbox("👤 選擇學生", df_stu["姓名"].tolist())
+                t_e = st.selectbox("📝 選擇考試別", ["第一次段考", "第二次段考", "第三次段考"])
                 pool = f_df[f_df["考試類別"] == t_e]
                 p_pool = pool[pool["姓名"] == t_s]
                 if not p_pool.empty:
@@ -206,9 +220,7 @@ else:
                     rank_df["排名"] = rank_df["分數"].rank(ascending=False, method='min').astype(int)
                     curr_rank = rank_df.loc[t_s, "排名"] if t_s in rank_df.index else "N"
                     m1, m2, m3, m4, m5 = st.columns(5)
-                    m1.metric("📊 總分", format_num(total_score))
-                    m2.metric("📈 平均", format_num(total_score/count_sub))
-                    m3.metric("💎 積點", sum_pts)
+                    m1.metric("📊 總分", format_num(total_score)); m2.metric("📈 平均", format_num(total_score/count_sub)); m3.metric("💎 積點", sum_pts)
                     with m4: st.markdown(f'<div class="indicator-box"><div class="indicator-label">🏆 總標示</div><div class="indicator-value">{calculate_overall_indicator(grades_for_ind)}</div></div>', unsafe_allow_html=True)
                     m5.metric("🎖️ 排名", f"第 {curr_rank} 名")
                     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
@@ -230,15 +242,14 @@ else:
                     st.dataframe(hist_df.sort_values("日期", ascending=False)[["日期", "科目", "分數", "考試範圍"]], hide_index=True, use_container_width=True)
 
         with tabs[1]: 
-            # AI 診斷標題方框
+            # 標題方框：AI 智慧診斷
             st.markdown('<div class="title-box">AI 深度分析報告 - 809班</div>', unsafe_allow_html=True)
-            
             st.markdown('<div class="filter-container">', unsafe_allow_html=True)
             ai_name = st.selectbox("分析對象", df_raw["姓名"].unique(), key="ai_sel")
             ai_type = st.radio("數據源", ["最近一次段考", "近期平時考表現"], horizontal=True)
             st.markdown('</div>', unsafe_allow_html=True)
-
-            if st.button("🚀 生成深度報告"):
+            
+            if st.button("🚀 生成深度診斷報告"):
                 genai.configure(api_key=st.secrets["gemini"]["api_key"])
                 model = genai.GenerativeModel('gemini-2.0-flash')
                 filter_cat = "平時考" if "平時" in ai_type else "第一次段考"
@@ -246,27 +257,30 @@ else:
                 student_data = target_data[target_data["姓名"] == ai_name]
                 
                 if not student_data.empty:
-                    # 準備數據表格給 AI
-                    stats_str = "科目 | 個人平均 | 班級平均 | 標準差\n---|---|---|---\n"
+                    # 彙整數據表格給 AI
+                    stats_str = "科目 | 個人平均 | 班級平均 | 標準差(σ)\n---|---|---|---\n"
                     for s in student_data['科目'].unique():
                         s_avg = student_data[student_data['科目']==s]['分數'].mean()
                         c_avg = target_data[target_data['科目']==s]['分數'].mean()
                         c_std = target_data[target_data['科目']==s]['分數'].std()
                         stats_str += f"{s} | {format_num(s_avg)} | {format_num(c_avg)} | {format_num(c_std)}\n"
                     
-                    with st.spinner("AI 老師分析中..."):
+                    with st.spinner("AI 導師閱卷診斷中..."):
+                        # 強化後的 AI Prompt
                         prompt = f"""
-                        你是台灣國中的班導師，請根據以下數據進行分析：
-                        1. 先將提供的數據轉換為 Markdown 表格呈現（包含科目、個人分數、班均、標準差）。
-                        2. 根據數據提供各科表現的深入診斷（落後班均或優於班均的分析）。
-                        3. 給予學生具體的學習策略建議與溫暖的鼓勵。
+                        你是台灣國中的班導師，請針對以下學生成績數據進行深度分析報告：
+                        
+                        1. **數據總覽表格**：請先將提供的數據轉換為 Markdown 表格呈現。
+                        2. **各科表現診斷**：針對每一科的個人分數相較於「班平均」與「標準差」進行診斷。例如：若分數超過班均加一個標準差，屬於表現優異；若低於班均，請分析其落後程度。
+                        3. **整體學習建議**：觀察各學科間是否存在偏科現象，並給予具體的學習補強建議。
+                        4. **導師的鼓勵**：語氣需專業且充滿溫情，像親切的導師一樣給予學生信心。
 
-                        數據內容：
                         學生姓名：{ai_name}
                         考試類別：{filter_cat}
+                        數據來源：
                         {stats_str}
                         """
                         res = model.generate_content(prompt)
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
                 else:
-                    st.error("此篩選條件下無足夠數據進行 AI 分析")
+                    st.error("此區間內無相關數據，請確認篩選日期或學生姓名")

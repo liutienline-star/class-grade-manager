@@ -6,6 +6,7 @@ import numpy as np
 from datetime import datetime, date
 from fpdf import FPDF
 import io
+import os
 
 # --- 1. 系統初始化配置 ---
 st.set_page_config(page_title="809班成績管理系統", layout="wide")
@@ -21,6 +22,8 @@ st.markdown("""
     .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #eee; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     div[data-testid="stMetricValue"] { font-size: 24px; font-weight: bold; color: #1f77b4; }
     .report-card { background: #ffffff; padding: 20px; border: 2px solid #2c3e50; border-radius: 8px; margin-bottom: 20px; }
+    /* 修正文字隱藏問題 */
+    .stTabs [data-baseweb="tab-panel"] { padding-top: 1rem; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -44,7 +47,6 @@ def get_dist_dict(series):
     return counts.to_dict()
 
 def to_int_val(val):
-    """確保座號為整數且不帶 .0"""
     try:
         if pd.isna(val): return 0
         return int(round(float(val), 0))
@@ -91,9 +93,15 @@ if role == "學生專區 (成績錄入)":
 # --- 6. 老師專區 ---
 else:
     if not st.session_state['authenticated']:
-        pwd = st.text_input("管理員密碼", type="password")
-        if st.button("登入"):
-            if pwd == st.secrets["teacher"]["password"]: st.session_state['authenticated'] = True; st.rerun()
+        # 修正密碼框位置，避免遮擋
+        st.title("🔑 管理員登入")
+        pwd = st.text_input("請輸入管理員密碼", type="password")
+        if st.button("確認登入"):
+            if pwd == st.secrets["teacher"]["password"]: 
+                st.session_state['authenticated'] = True
+                st.rerun()
+            else:
+                st.error("密碼錯誤")
     
     if st.session_state['authenticated']:
         tabs = st.tabs(["📊 數據中心", "🤖 AI 診斷分析", "📥 報表輸出中心"])
@@ -159,7 +167,7 @@ else:
                     
                     final_df = pd.DataFrame(report_rows)
                     st.dataframe(final_df, hide_index=True)
-                    st.session_state['p_report_data'] = {"meta": f"學號:{sid} 姓名:{t_s}", "df": final_df}
+                    st.session_state['p_report_data'] = {"meta": f"學號:{sid} 姓名:{t_s} 考試:{t_e}", "df": final_df}
                 else: st.warning("目前區間查無該生資料")
 
             elif mode == "段考總表":
@@ -187,51 +195,64 @@ else:
                 st.dataframe(d_df[["時間戳記", "科目", "考試範圍", "分數"]].sort_values("時間戳記", ascending=False), hide_index=True)
 
         with tabs[1]:
-            st.subheader("🤖 AI 診斷分析")
-            ai_s = st.selectbox("分析對象", df_stu_list["姓名"].tolist(), key="ai_s")
-            if st.button("✨ 啟動 AI 分析"):
-                # 修復邏輯：讀取該生在區間內的所有資料，並區分考試類別與範圍
+            st.subheader("🤖 AI 診斷分析 (按搜尋區間)")
+            ai_s = st.selectbox("分析對象", df_stu_list["姓名"].tolist(), key="ai_s_box")
+            # 1. 修正：增加診斷類型選擇，不使用綜合型
+            diag_type = st.radio("請選擇診斷類型：", ["平時考診斷 (針對科目與範圍)", "段考診斷 (針對特定段考)"], horizontal=True)
+            
+            if st.button("✨ 啟動 AI 專科診斷"):
                 ai_data = f_df[f_df["姓名"] == ai_s]
-                if not ai_data.empty:
-                    # 整理詳細數據 context
+                if diag_type == "平時考診斷 (針對科目與範圍)":
+                    target_data = ai_data[ai_data["考試類別"] == "平時考"]
+                    title = "平時學習診斷"
+                else:
+                    target_data = ai_data[ai_data["考試類別"] != "平時考"]
+                    title = "段考表現診斷"
+
+                if not target_data.empty:
                     records = []
-                    for _, row in ai_data.iterrows():
-                        records.append(f"[{row['考試類別']}] {row['科目']}: {row['分數']} (範圍: {row['考試範圍']})")
+                    for _, row in target_data.iterrows():
+                        records.append(f"- {row['科目']} ({row['考試範圍']}): {row['分數']}分")
                     
-                    data_string = "\n".join(records)
+                    data_str = "\n".join(records)
+                    prompt = f"你是809班導師。請針對學生「{ai_s}」的「{title}」數據進行分析。\n資料範圍：{start_date}~{end_date}\n成績紀錄：\n{data_str}\n\n請給出：1.該類考試表現評估 2.強弱學科/範圍分析 3.具體精進建議。請保持口氣專業且具鼓勵性。"
                     
-                    prompt = f"""
-                    你現在是 809 班的專業導師。請根據以下學生的成績數據進行深度診斷：
-                    學生姓名：{ai_s}
-                    搜尋區間：{start_date} 至 {end_date}
-                    
-                    成績紀錄：
-                    {data_string}
-                    
-                    請提供以下結構的分析：
-                    1. 學習趨勢觀察：比較平時考與段考的差異，或特定科目的起伏。
-                    2. 強項與弱項分析：指出哪些學科及特定「考試範圍」掌握良好，哪些需要加強。
-                    3. 具體建議：針對弱項提供學習策略建議。
-                    
-                    請用溫暖、具鼓勵性且專業的語氣回答。
-                    """
-                    with st.spinner("AI 老師正在閱卷並思考中..."):
+                    with st.spinner("AI 老師正在閱卷..."):
                         res = model.generate_content(prompt)
                         st.info(res.text)
                 else:
-                    st.warning("目前選擇的日期區間內無該生資料，請調整日期或確認成績已錄入。")
+                    st.warning(f"目前區間內查無「{ai_s}」的相關考試資料。")
 
         with tabs[2]:
             st.subheader("📥 報表輸出中心")
-            # 嚴格保留原本的功能選項
             rpt_opt = st.selectbox("請選擇報表類型", ["個人段考成績分析單", "班級段考總成績清單", "學生平時成績歷次紀錄"])
             
             if st.button("🚀 產生報表下載"):
-                if rpt_opt == "個人段考成績分析單" and 'p_report_data' in st.session_state:
-                    data = st.session_state['p_report_data']
-                    html_report = f"<h2>{data['meta']}</h2>" + data['df'].to_html(index=False)
-                    st.download_button("📥 下載成績單 (HTML 格式)", data=html_report, file_name="Report.html", mime="text/html")
-                    st.info("💡 HTML 格式可在瀏覽器開啟後，直接按 Ctrl+P 儲存為 PDF，且完美支援中文。")
+                # 2. 修正：PDF 生成與下載邏輯
+                if rpt_opt == "個人段考成績分析單":
+                    if 'p_report_data' in st.session_state:
+                        data = st.session_state['p_report_data']
+                        
+                        # PDF 生成邏輯 (考慮中文編碼)
+                        pdf = FPDF()
+                        pdf.add_page()
+                        # 注意：若要在 PDF 顯示中文，環境中必須有字體檔
+                        # 此處使用 HTML 轉 PDF 的替代方案，這在 Streamlit 是最穩定的
+                        html_content = f"""
+                        <div style="font-family: sans-serif;">
+                            <h2>809班成績分析單</h2>
+                            <p>{data['meta']}</p>
+                            <table border="1" style="width:100%; border-collapse: collapse;">
+                                <tr>{"".join(f"<th>{col}</th>" for col in data['df'].columns)}</tr>
+                                {"".join(f"<tr>{''.join(f'<td>{val}</td>' for val in row)}</tr>" for row in data['df'].values)}
+                            </table>
+                        </div>
+                        """
+                        # 提供 HTML 下載 (最推薦，可直接用瀏覽器列印成 PDF，不失真且絕對支援中文)
+                        st.download_button("📥 下載成績單 (HTML/PDF相容格式)", data=html_content, file_name=f"Report_{data['meta']}.html", mime="text/html")
+                        st.info("💡 點擊下載後，用瀏覽器開啟檔案，按 Ctrl+P 即可直接儲存為完美格式的 PDF。")
+                    else:
+                        st.error("請先至『數據中心』查詢個人成績。")
                 
                 elif rpt_opt == "班級段考總成績清單":
                     csv = f_df.to_csv(index=False).encode('utf-8-sig')
@@ -240,5 +261,3 @@ else:
                 elif rpt_opt == "學生平時成績歷次紀錄":
                     csv = f_df[f_df["考試類別"] == "平時考"].to_csv(index=False).encode('utf-8-sig')
                     st.download_button("📥 下載紀錄 (CSV)", data=csv, file_name="Daily_Log.csv")
-                else:
-                    st.error("請先至『數據中心』查詢並顯示資料。")

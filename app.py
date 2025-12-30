@@ -48,7 +48,7 @@ def style_low_scores(val):
         return 'color: red'
     return 'color: black'
 
-# 安全轉換整數的輔助函數 (解決 ValueError 核心問題)
+# 安全轉換整數的輔助函數
 def safe_to_int(series):
     return pd.to_numeric(series, errors='coerce').fillna(0).astype(int)
 
@@ -162,10 +162,15 @@ else:
                 rdf = df_grades[(df_grades["科目"] == ss) & (df_grades["考試範圍"] == sr)].copy()
                 if not rdf.empty:
                     rdf["分數"] = safe_to_int(rdf["分數"])
-                    rdf["班級平均"] = round(rdf["分數"].mean(), 2)
+                    rdf["班級平均"] = pd.to_numeric(rdf["分數"], errors='coerce').mean()
                     rdf["排序"] = rdf["分數"].rank(ascending=False, method='min').astype(int)
                     final = rdf[["姓名", "分數", "班級平均", "排序"]].sort_values("排序")
-                    st.dataframe(final.style.map(style_low_scores, subset=['分數']), use_container_width=True)
+                    # 修復點：使用 .format() 強制表格顯示小數點兩位
+                    st.dataframe(
+                        final.style.map(style_low_scores, subset=['分數'])
+                        .format({"班級平均": "{:.2f}"}), 
+                        use_container_width=True
+                    )
                     st.session_state['df_rank'], st.session_state['info_rank'] = final, f"{ss} ({sr})"
 
             elif mode == "段考總表":
@@ -175,11 +180,16 @@ else:
                     tdf["分數"] = pd.to_numeric(tdf["分數"], errors='coerce').fillna(0)
                     p_df = tdf.pivot_table(index="姓名", columns="科目", values="分數", aggfunc="mean")
                     p_df_int = p_df.round(0).astype(int)
-                    p_df_int["平均"] = round(p_df.mean(axis=1), 2)
+                    p_df_int["平均"] = p_df.mean(axis=1)
                     p_df_int["排序"] = p_df_int["平均"].rank(ascending=False, method='min').astype(int)
                     final = p_df_int.sort_values("排序")
                     style_cols = [c for c in final.columns if c not in ['平均', '排序']]
-                    st.dataframe(final.style.map(style_low_scores, subset=style_cols), use_container_width=True)
+                    # 修復點：強制總表平均顯示兩位
+                    st.dataframe(
+                        final.style.map(style_low_scores, subset=style_cols)
+                        .format({"平均": "{:.2f}"}), 
+                        use_container_width=True
+                    )
                     st.session_state['df_total'], st.session_state['info_total'] = final, stype
 
             elif mode == "個人歷次":

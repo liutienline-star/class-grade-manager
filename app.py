@@ -1,36 +1,53 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
+import pandas as pd
+from datetime import datetime
 
-st.title("🚀 最終連線診斷")
+st.title("🎓 班級成績錄入系統")
 
-# 檢查 1：Streamlit Secrets 是否真的有內容
-if not st.secrets.keys():
-    st.error("🚨 錯誤：Streamlit Cloud 完全讀不到你的 Secrets！")
-    st.info("請確認你是在 Streamlit Cloud 後台的 Settings -> Secrets 貼上內容，而不是在 GitHub 上建立檔案。")
+# 建立連線
+conn = st.connection("gsheets", type=GSheetsConnection)
+url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+
+# 讀取中文工作表
+try:
+    df_students = conn.read(spreadsheet=url, worksheet="學生名單")
+    df_courses = conn.read(spreadsheet=url, worksheet="科目設定")
+    df_grades = conn.read(spreadsheet=url, worksheet="成績資料")
+except Exception as e:
+    st.error(f"找不到工作表，請確認 Google Sheet 名稱是否正確：{e}")
     st.stop()
 
-# 檢查 2：試著從 Secrets 抓取網址
-try:
-    # 這裡我們用最保險的抓取方式
-    url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-    st.write(f"✅ 成功偵測到試算表網址")
-except Exception as e:
-    st.error(f"❌ 雖然有 Secrets，但找不到網址欄位：{e}")
-    st.stop()
-
-# 檢查 3：連線並讀取指定工作表
-st.divider()
-st.subheader("正在讀取 Student_List...")
-
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    # 直接指定網址與工作表名稱
-    df = conn.read(spreadsheet=url, worksheet="Student_List", ttl=0)
+# 錄入表單
+with st.form("grade_form", clear_on_submit=True):
+    st.subheader("📝 錄入新分數")
+    col1, col2 = st.columns(2)
     
-    st.success("🎉 連線成功！已成功抓取 Student_List 資料！")
-    st.dataframe(df)
+    with col1:
+        name = st.selectbox("選擇學生", df_students["姓名"].tolist())
+        course = st.selectbox("選擇科目", df_courses["科目名稱"].tolist())
     
-except Exception as e:
-    st.error("❌ 連線過程中發生錯誤：")
-    st.code(str(e))
-    st.warning("如果錯誤訊息包含 'Worksheet not found'，請檢查你的試算表標籤名稱是否『完全等於』Student_List (注意大小寫)。")
+    with col2:
+        score = st.number_input("分數", min_value=0.0, max_value=100.0, step=0.5)
+        exam_type = st.selectbox("考試類別", ["小考", "期中考", "期末考"])
+    
+    submit = st.form_submit_button("儲存成績")
+
+if submit:
+    # 找出對應學號
+    sid = df_students[df_students["姓名"] == name]["學號"].values[0]
+    
+    # 建立新資料
+    new_entry = pd.DataFrame([{
+        "時間戳記": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "學號": sid,
+        "姓名": name,
+        "科目": course,
+        "分數": score,
+        "考試類別": exam_type
+    }])
+    
+    # 更新回 Google Sheets
+    updated_df = pd.concat([df_grades, new_entry], ignore_index=True)
+    conn.update(spreadsheet=url, worksheet="成績資料", data=updated_df)
+    st.success(f"✅ {name} 的 {course} 成績已成功上傳！")

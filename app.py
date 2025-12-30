@@ -73,7 +73,7 @@ else:
     if st.session_state['authenticated']:
         tabs = st.tabs(["🤖 AI 學習分析", "📊 數據統計中心", "📄 報表下載中心"])
 
-        # TAB 1: AI 分析 (保持原狀)
+        # TAB 1: AI 分析
         with tabs[0]:
             st.subheader("🤖 AI 個人化學習建議")
             df_grades_raw = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
@@ -100,12 +100,12 @@ else:
                     st.markdown(response.text)
             else: st.warning("無符合數據")
 
-        # TAB 2: 數據統計中心 (新增日期區間與個人歷次成績)
+        # TAB 2: 數據統計中心
         with tabs[1]:
             st.subheader("📊 班級數據統計")
             df_grades_raw = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
             
-            # --- 新增日期區間選擇 ---
+            # 日期區間選擇
             df_grades_raw['日期'] = pd.to_datetime(df_grades_raw['時間戳記']).dt.date
             min_date = df_grades_raw['日期'].min() if not df_grades_raw.empty else date.today()
             max_date = df_grades_raw['日期'].max() if not df_grades_raw.empty else date.today()
@@ -147,7 +147,6 @@ else:
                     st.session_state['info_total'] = stype
                 else: st.info("區間內無段考數據")
 
-            # --- 新增功能：個人歷次成績表 ---
             elif mode == "個人歷次成績表(跨科目)":
                 target_s = st.selectbox("選擇學生", df_grades_raw["姓名"].unique().tolist(), key="personal_s")
                 ps_df = df_grades[df_grades["姓名"] == target_s].copy()
@@ -160,7 +159,7 @@ else:
                     st.session_state['info_personal'] = target_s
                 else: st.info("該生於此區間內無紀錄")
 
-        # TAB 3: 報表下載 (PDF 邏輯保持穩定，僅配合新模式可顯示數據)
+        # TAB 3: 報表下載
         with tabs[2]:
             st.subheader("📥 809 班報表產出")
             rtype = st.radio("匯出類型：", ["AI 個人診斷報告", "單科成績排行榜單", "全班段考總成績單", "學生個人歷史成績表"])
@@ -170,6 +169,9 @@ else:
                     pdf = FPDF()
                     pdf.set_margins(15, 20, 15)
                     pdf.add_page()
+                    if not os.path.exists("font.ttf"):
+                        st.error("缺少 font.ttf 檔案")
+                        st.stop()
                     pdf.add_font("ChineseFont", "", "font.ttf")
                     pdf.set_font("ChineseFont", size=22)
                     h = 12
@@ -202,21 +204,26 @@ else:
                             pdf.ln()
                         fn = f"809_Total.pdf"
 
+                    # --- 修改處：個人歷史報表增列「範圍」欄位 ---
                     elif rtype == "學生個人歷史成績表" and st.session_state['df_personal'] is not None:
                         pdf.cell(0, 15, txt=f"809 班 {st.session_state['info_personal']} 歷史成績", ln=True, align='C')
                         pdf.set_font("ChineseFont", size=11)
                         df = st.session_state['df_personal']
-                        cols = ["日期", "科目", "類別", "分數"] # 簡化欄位避免超出
-                        cw = 180 / len(cols)
+                        cols = ["日期", "科目", "類別", "範圍", "分數"] # 已增列範圍
+                        cw = 180 / len(cols) # 自動計算等寬
+                        # 產出表頭
                         for c in cols: pdf.cell(cw, h, str(c), 1, 0, 'C')
                         pdf.ln()
+                        # 產出內容
                         for _, row in df.iterrows():
                             pdf.cell(cw, h, str(row["日期"]), 1, 0, 'C')
                             pdf.cell(cw, h, str(row["科目"]), 1, 0, 'C')
                             pdf.cell(cw, h, str(row["考試類別"]), 1, 0, 'C')
+                            pdf.cell(cw, h, str(row["考試範圍"]), 1, 0, 'C') # 增列此行資料
                             pdf.cell(cw, h, str(row["分數"]), 1, 0, 'C')
                             pdf.ln()
                         fn = f"809_{st.session_state['info_personal']}_History.pdf"
+                    
                     else:
                         st.warning("請先完成資料統計"); st.stop()
 

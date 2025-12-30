@@ -72,7 +72,7 @@ st.markdown("""
         color: #444444;
         font-weight: bold;
     }
-    /* 修正：縮小總標示字體防止擠壓切割 */
+    /* 修正：優化總標示字體，防止較長字串擠壓 */
     .indicator-value {
         font-size: 1.45rem !important; 
         color: #0d6efd !important;
@@ -103,7 +103,7 @@ def get_grade_info(score):
 def format_avg(val):
     try:
         f_val = float(val)
-        return f"{f_val:.2f}".rstrip('0').rstrip('.')
+        return f"{f_val:g}" # 修正：使用 :g 自動消除末尾多餘的 0
     except: return "0"
 
 def get_dist_dict(series):
@@ -153,7 +153,7 @@ if role == "學生專區 (成績錄入)":
                 name = st.selectbox("學生姓名", df_students["姓名"].tolist())
                 subject = st.selectbox("科目名稱", df_courses["科目名稱"].tolist())
             with c2:
-                score = st.number_input("得分", 0, 100, step=1)
+                score = st.number_input("得分", 0, 150, step=1)
                 etype = st.selectbox("考試類別", ["平時考", "第一次段考", "第二次段考", "第三次段考"])
             exam_range = st.text_input("考試範圍 (例如：第一單元)")
             submit = st.form_submit_button("✅ 提交成績至雲端")
@@ -235,7 +235,6 @@ else:
 
                     final_df = pd.DataFrame(rows)
                     st.dataframe(final_df, hide_index=True, use_container_width=True)
-                    # 修正：將資料存入 session_state 以便報表分頁讀取
                     st.session_state['p_rpt'] = {"title": f"{t_s} - {t_e} 個人成績單", "df": final_df}
                 else: st.warning("⚠ 無資料")
 
@@ -249,7 +248,6 @@ else:
                     piv["排名"] = piv["總平均"].rank(ascending=False, method='min').astype(int)
                     piv = piv.sort_values("排名")
                     st.dataframe(piv.style.format(format_avg, subset=["總平均"]), use_container_width=True)
-                    # 修正：將資料存入 session_state
                     st.session_state['c_rpt'] = {"title": f"{stype} 班級成績總表", "df": piv.reset_index()}
                 else: st.info("無數據")
 
@@ -257,7 +255,8 @@ else:
                 st_name = st.selectbox("查詢學生", df_stu["姓名"].tolist())
                 d_df = f_df[(f_df["姓名"] == st_name) & (f_df["考試類別"] == "平時考")].copy()
                 d_df = d_df[["時間戳記", "科目", "考試範圍", "分數"]].sort_values("時間戳記", ascending=False)
-                st.dataframe(d_df, hide_index=True, use_container_width=True)
+                # 修正：直接在顯示前消除多餘 0
+                st.dataframe(d_df.style.format({"分數": format_avg}), hide_index=True, use_container_width=True)
                 st.session_state['d_rpt'] = {"title": f"{st_name} 平時成績紀錄表", "df": d_df}
 
         # --- AI 診斷分析區 ---
@@ -274,27 +273,29 @@ else:
                     for sub in target_student['科目'].unique():
                         s_score = target_student[target_student['科目'] == sub]['分數'].iloc[0]
                         c_mean = class_data[class_data['科目'] == sub]['分數'].mean()
-                        c_std = class_data[class_data['科目'] == sub]['分數'].std()
-                        stats_report.append(f"- {sub}: 個人得分={s_score}, 班平均={c_mean:.2f}, 標準差={c_std:.2f}")
+                        stats_report.append(f"- {sub}: 個人得分={format_avg(s_score)}, 班平均={format_avg(c_mean)}")
                     data_summary = "\n".join(stats_report)
-                    prompt = f"你是台灣的中學班導師，針對「{ai_name}」在「{filter_cat}」分析：\n\n【數據】\n{data_summary}\n\n任務：優劣分析、標準差競爭力說明、親師通訊建議。Markdown 格式。"
+                    prompt = f"你是台灣的中學班導師，針對「{ai_name}」在「{filter_cat}」分析：\n\n【數據】\n{data_summary}\n\n任務：優劣分析、親師通訊建議。Markdown 格式。"
                     with st.spinner("AI 分析中..."):
                         res = model.generate_content(prompt)
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
 
-        # --- 7. 報表輸出中心 (修正後) ---
+        # --- 7. 報表輸出中心 (修正多餘 0) ---
         with tabs[2]:
             st.subheader("📥 報表輸出中心")
             rpt_type = st.radio("選擇要輸出的報表", ["個人段考成績單", "班級成績總表", "平時成績紀錄表"], horizontal=True)
-            
-            # 對應 session_state 的 key
             key_map = {"個人段考成績單": 'p_rpt', "班級成績總表": 'c_rpt', "平時成績紀錄表": 'd_rpt'}
             target_key = key_map[rpt_type]
 
             if target_key in st.session_state:
                 data = st.session_state[target_key]
                 st.markdown(f"### {data['title']}")
-                st.table(data['df']) # 使用 table 渲染適合列印的靜態格式
+                # 修正：報表輸出前統一套用格式化，消除多餘 0
+                formatted_df = data['df'].copy()
+                for col in formatted_df.columns:
+                    if formatted_df[col].dtype in [np.float64, np.int64]:
+                        formatted_df[col] = formatted_df[col].apply(format_avg)
+                st.table(formatted_df)
                 st.caption(f"生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
             else:
-                st.info("💡 請先至「數據查詢與中心」點選學生或考別進行查詢，系統才會產出報表資料。")
+                st.info("💡 請先至「數據查詢與中心」進行查詢，系統才會產出報表資料。")

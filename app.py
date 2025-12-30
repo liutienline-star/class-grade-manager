@@ -46,7 +46,8 @@ if role == "學生專區 (成績錄入)":
             subject = st.selectbox("科目名稱", df_courses["科目名稱"].tolist())
             exam_range = st.text_input("考試範圍", placeholder="例如：L1-L3")
         with col2:
-            score = st.number_input("得分 (0-100)", 0, 100, step=1)
+            # --- 修改處：移除 0-100 的限制 ---
+            score = st.number_input("得分", step=1) 
             etype = st.selectbox("考試類別", ["平時考", "第一次段考", "第二次段考", "第三次段考"])
         
         if st.form_submit_button("確認提交成績"):
@@ -57,7 +58,7 @@ if role == "學生專區 (成績錄入)":
                 "考試類別": etype, "考試範圍": exam_range
             }])
             conn.update(spreadsheet=url, worksheet="成績資料", data=pd.concat([df_grades, new_row], ignore_index=True))
-            st.success(f"✅ {name} 的資料已存入。")
+            st.success(f"✅ {name} 的資料（分數：{score}）已存入。")
 
 # --- 5. 老師專區 ---
 else:
@@ -73,7 +74,7 @@ else:
     if st.session_state['authenticated']:
         tabs = st.tabs(["🤖 AI 學習分析", "📊 數據統計中心", "📄 報表下載中心"])
 
-        # TAB 1: AI 分析 (已加入標準差邏輯)
+        # TAB 1: AI 分析 (包含平均與標準差)
         with tabs[0]:
             st.subheader("🤖 AI 個人化學習建議")
             df_grades_raw = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
@@ -90,24 +91,20 @@ else:
             if not s_data.empty:
                 i_score = s_data["分數"].iloc[0]
                 c_mean = round(c_data["分數"].mean(), 2)
-                # 計算標準差
                 c_std = round(c_data["分數"].std(), 2) if len(c_data) > 1 else 0
                 
-                # 顯示統計指標
                 m1, m2, m3 = st.columns(3)
                 m1.metric("個人分數", i_score)
                 m2.metric("班級平均", c_mean)
                 m3.metric("班級標準差", c_std)
 
                 if st.button("✨ 產生分析建議"):
-                    # 將標準差加入 Prompt
                     prompt = (f"你是導師。分析809班學生『{t_stu}』在{t_sub}({t_rng})表現：\n"
                               f"1. 個人得分：{i_score}分\n"
                               f"2. 班級平均：{c_mean}分\n"
                               f"3. 班級標準差：{c_std}\n"
                               f"請根據這些數據（考慮個人與平均的差距，以及標準差反映的班級競爭情況），"
                               f"給予250字繁體中文建議。")
-                    
                     response = model.generate_content(prompt)
                     st.session_state['last_report'] = response.text
                     st.session_state['last_target'] = t_stu
@@ -116,7 +113,7 @@ else:
                     st.markdown(response.text)
             else: st.warning("無符合數據")
 
-        # TAB 2 & 3 保持您之前的設定，不更動版面
+        # TAB 2: 數據統計中心 (含日期區間)
         with tabs[1]:
             st.subheader("📊 班級數據統計")
             df_grades_raw['日期'] = pd.to_datetime(df_grades_raw['時間戳記']).dt.date
@@ -170,6 +167,7 @@ else:
                     st.session_state['info_personal'] = target_s
                 else: st.info("無紀錄")
 
+        # TAB 3: 報表下載
         with tabs[2]:
             st.subheader("📥 809 班報表產出")
             rtype = st.radio("匯出類型：", ["AI 個人診斷報告", "單科成績排行榜單", "全班段考總成績單", "學生個人歷史成績表"])
@@ -187,12 +185,11 @@ else:
                         pdf.set_font("ChineseFont", size=16)
                         pdf.cell(0, 10, txt=f"姓名：{st.session_state['last_target']}", ln=True, align='C')
                         pdf.set_font("ChineseFont", size=12)
-                        pdf.cell(0, 10, txt=st.session_state['ai_info'], ln=True, align='C') # 這裡會包含標準差資訊
+                        pdf.cell(0, 10, txt=st.session_state['ai_info'], ln=True, align='C')
                         pdf.ln(5)
                         pdf.multi_cell(0, 10, txt=st.session_state['last_report'].replace('*', ''))
                         fn = f"809_{st.session_state['last_target']}_AI.pdf"
                     
-                    # (其餘 PDF 生成邏輯保持與前次版本完全一致，節省篇幅)
                     elif rtype == "單科成績排行榜單" and st.session_state['df_rank'] is not None:
                         pdf.cell(0, 15, txt=f"809 班 {st.session_state['info_rank']} 排行榜", ln=True, align='C')
                         pdf.set_font("ChineseFont", size=12)
@@ -200,6 +197,7 @@ else:
                             pdf.cell(45, h, str(row["姓名"]), 1); pdf.cell(45, h, str(row["分數"]), 1)
                             pdf.cell(45, h, str(row["班級平均"]), 1); pdf.cell(45, h, str(row["排序"]), 1); pdf.ln()
                         fn = f"809_Rank.pdf"
+
                     elif rtype == "全班段考總成績單" and st.session_state['df_total'] is not None:
                         pdf.cell(0, 15, txt=f"809 班 {st.session_state['info_total']} 成績單", ln=True, align='C')
                         pdf.set_font("ChineseFont", size=10)
@@ -211,6 +209,7 @@ else:
                             for c in df.columns: pdf.cell(cw, h, str(row[c]), 1, 0, 'C')
                             pdf.ln()
                         fn = f"809_Total.pdf"
+
                     elif rtype == "學生個人歷史成績表" and st.session_state['df_personal'] is not None:
                         pdf.cell(0, 15, txt=f"809 班 {st.session_state['info_personal']} 歷史成績", ln=True, align='C')
                         pdf.set_font("ChineseFont", size=11)

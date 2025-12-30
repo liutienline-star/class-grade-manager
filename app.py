@@ -18,7 +18,6 @@ DIST_LABELS = ["0-10", "10-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70
 st.markdown("""
     <style>
     .main { background-color: #fcfcfc; }
-    /* 修正：加大版面寬度至 1600px，確保報表不擠壓 */
     .block-container { max-width: 1600px; padding-top: 2rem; padding-bottom: 2rem; }
     
     html, body, [class*="st-"] {
@@ -68,24 +67,11 @@ st.markdown("""
         text-align: center;
         box-shadow: 3px 3px 0px rgba(0,0,0,0.05);
     }
-    .indicator-label {
-        font-size: 1.25rem;
-        color: #444444;
-        font-weight: bold;
-    }
-    .indicator-value {
-        font-size: 1.45rem !important; 
-        color: #0d6efd !important;
-        font-weight: 900;
-        line-height: 1.2;
-        word-wrap: break-word;
-    }
+    .indicator-label { font-size: 1.25rem; color: #444444; font-weight: bold; }
+    .indicator-value { font-size: 1.45rem !important; color: #0d6efd !important; font-weight: 900; line-height: 1.2; word-wrap: break-word; }
 
     .stDataFrame { border: 1px solid #e0e0e0; border-radius: 10px; }
-    .report-card { 
-        background: #ffffff; padding: 30px; border: 2px solid #2d3436; 
-        border-radius: 15px; margin-top: 20px; line-height: 1.8;
-    }
+    .report-card { background: #ffffff; padding: 30px; border: 2px solid #2d3436; border-radius: 15px; margin-top: 20px; line-height: 1.8; }
     hr { margin: 2rem 0; border: 0; border-top: 2px solid #eee; }
     </style>
     """, unsafe_allow_html=True)
@@ -141,11 +127,12 @@ role = st.sidebar.radio("功能導覽：", ["學生專區 (成績錄入)", "老�
 
 # --- 5. 學生專區 ---
 if role == "學生專區 (成績錄入)":
-    st.title("📝 學生成績錄入")
+    st.title("📝 學生成績錄入與自主檢核")
     df_students = conn.read(spreadsheet=url, worksheet="學生名單", ttl=0)
     df_courses = conn.read(spreadsheet=url, worksheet="科目設定", ttl=0)
     df_grades_db = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
     
+    # 錄入區
     with st.container():
         with st.form("input_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
@@ -157,11 +144,34 @@ if role == "學生專區 (成績錄入)":
                 etype = st.selectbox("考試類別", ["平時考", "第一次段考", "第二次段考", "第三次段考"])
             exam_range = st.text_input("考試範圍 (例如：第一單元)")
             submit = st.form_submit_button("✅ 提交成績至雲端")
+            
             if submit:
                 sid = to_int_val(df_students[df_students["姓名"] == name]["學號"].values[0])
                 new_row = pd.DataFrame([{"時間戳記": datetime.now().strftime("%Y-%m-%d %H:%M"), "學號": sid, "姓名": name, "科目": subject, "分數": int(score), "考試類別": etype, "考試範圍": exam_range}])
                 conn.update(spreadsheet=url, worksheet="成績資料", data=pd.concat([df_grades_db, new_row], ignore_index=True))
                 st.success(f"【錄入成功】{name} - {subject}")
+                st.rerun()
+
+    # 自主檢核區（修正與確認）
+    st.markdown("---")
+    st.subheader(f"🔍 「{name}」的最近錄入紀錄")
+    # 只篩選目前選擇學生的紀錄，並按時間排序
+    my_records = df_grades_db[df_grades_db["姓名"] == name].sort_values("時間戳記", ascending=False).head(5)
+    
+    if not my_records.empty:
+        st.write("如果你發現以下資料輸入錯誤，可以點擊下方的「撤回最後一筆」按鈕重新輸入。")
+        st.dataframe(my_records[["時間戳記", "科目", "考試類別", "分數", "考試範圍"]], hide_index=True, use_container_width=True)
+        
+        # 撤回功能：刪除該學生在資料庫中的最後一筆紀錄
+        if st.button(f"🗑️ 撤回並刪除「{name}」的最後一筆資料"):
+            # 找到該學生最新紀錄在原始資料表中的 index
+            latest_idx = my_records.index[0]
+            new_df = df_grades_db.drop(latest_idx)
+            conn.update(spreadsheet=url, worksheet="成績資料", data=new_df)
+            st.warning("資料已成功刪除，請重新輸入正確成績。")
+            st.rerun()
+    else:
+        st.info("目前尚無你的錄入紀錄。")
 
 # --- 6. 老師專區 ---
 else:
@@ -258,7 +268,6 @@ else:
                 st.dataframe(d_df.style.format({"分數": format_avg}), hide_index=True, use_container_width=True)
                 st.session_state['d_rpt'] = {"title": f"{st_name} 平時成績紀錄表", "df": d_df}
 
-        # --- AI 診斷分析區 (加入標準差分析) ---
         with tabs[1]:
             st.subheader("🤖 AI 智慧分析報告")
             ai_name = st.selectbox("分析對象", df_stu["姓名"].tolist(), key="ai_sel")
@@ -273,24 +282,20 @@ else:
                         s_score = target_student[target_student['科目'] == sub]['分數'].iloc[0]
                         sub_all_scores = class_data[class_data['科目'] == sub]['分數']
                         c_mean = sub_all_scores.mean()
-                        c_std = sub_all_scores.std() # 新增：計算標準差
+                        c_std = sub_all_scores.std() # 加入標準差
                         stats_report.append(f"- {sub}: 個人得分={format_avg(s_score)}, 班平均={format_avg(c_mean)}, 班級標準差={format_avg(c_std)}")
                     
                     data_summary = "\n".join(stats_report)
-                    # 提示詞中加入標準差的分析指引
-                    prompt = f"你是台灣的中學班導師，針對「{ai_name}」在「{filter_cat}」分析：\n\n【數據】\n{data_summary}\n\n任務：請結合「個人分數」、「班級平均」與「班級標準差」進行分析（標準差反映了班級分數的離散程度，請依此評估該生表現的穩定性與相對實力），並提供優劣分析與親師通訊建議。Markdown 格式。"
-                    
+                    prompt = f"你是台灣的中學班導師，針對「{ai_name}」在「{filter_cat}」分析：\n\n【數據】\n{data_summary}\n\n任務：結合「個人分數」、「班平均」與「標準差」分析表現穩定性與實力，並提供建議。Markdown 格式。"
                     with st.spinner("AI 分析中..."):
                         res = model.generate_content(prompt)
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
 
-        # --- 7. 報表輸出中心 ---
         with tabs[2]:
             st.subheader("📥 報表輸出中心")
             rpt_type = st.radio("選擇要輸出的報表", ["個人段考成績單", "班級成績總表", "平時成績紀錄表"], horizontal=True)
             key_map = {"個人段考成績單": 'p_rpt', "班級成績總表": 'c_rpt', "平時成績紀錄表": 'd_rpt'}
             target_key = key_map[rpt_type]
-
             if target_key in st.session_state:
                 data = st.session_state[target_key]
                 st.markdown(f"### {data['title']}")
@@ -301,4 +306,4 @@ else:
                 st.table(formatted_df)
                 st.caption(f"生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
             else:
-                st.info("💡 請先至「數據查詢與中心」進行查詢，系統才會產出報表資料。")
+                st.info("💡 請先至「數據查詢與中心」進行查詢。")

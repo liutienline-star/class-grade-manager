@@ -37,18 +37,20 @@ try:
 except Exception as e:
     st.error(f"系統連線配置錯誤：{e}"); st.stop()
 
-# --- 2. 狀態管理 ---
-states = ['authenticated', 'last_report', 'last_target', 'df_rank', 'df_total', 'df_personal', 'info_rank', 'info_total', 'info_personal', 'ai_info']
+# --- 2. 狀態管理 (新增 df_ps_exam 儲存個人段考狀態) ---
+states = [
+    'authenticated', 'last_report', 'last_target', 'df_rank', 'df_total', 
+    'df_personal', 'df_ps_exam', 'info_rank', 'info_total', 'info_personal', 
+    'info_ps_exam', 'ai_info'
+]
 for s in states:
     if s not in st.session_state: st.session_state[s] = None
 
-# 不及格紅字樣式函數
 def style_low_scores(val):
     if isinstance(val, (int, float)) and val < 60:
         return 'color: red'
     return 'color: black'
 
-# 安全轉換整數的輔助函數
 def safe_to_int(series):
     return pd.to_numeric(series, errors='coerce').fillna(0).astype(int)
 
@@ -56,7 +58,7 @@ def safe_to_int(series):
 st.sidebar.title("🏫 809 管理系統")
 role = st.sidebar.radio("請選擇操作功能：", ["學生專區 (成績錄入)", "老師專區 (統計與報表)"])
 
-# --- 4. 學生專區 ---
+# --- 4. 學生專區 (保持不變) ---
 if role == "學生專區 (成績錄入)":
     st.title("📝 學生成績錄入")
     try:
@@ -118,23 +120,17 @@ else:
                 c_mean = round(pd.to_numeric(c_data["分數"], errors='coerce').mean(), 2)
                 c_std = round(pd.to_numeric(c_data["分數"], errors='coerce').std(), 2) if len(c_data) > 1 else 0.00
                 
-                st.markdown("### 📈 統計快覽")
                 m1, m2, m3 = st.columns(3)
                 m1.metric("個人分數", f"{i_score}")
                 m2.metric("班級平均", f"{c_mean:.2f}")
                 m3.metric("班級標準差", f"{c_std:.2f}")
 
                 if st.button("✨ 生成 AI 診斷報告", use_container_width=True):
-                    prompt = (f"你是導師。分析809班學生『{t_stu}』在{t_sub}({t_rng})表現：\n"
-                              f"1. 個人得分：{i_score}分\n"
-                              f"2. 班級平均：{c_mean:.2f}分\n"
-                              f"3. 班級標準差：{c_std:.2f}\n"
-                              f"請根據數據分析競爭力並給予250字建議。")
+                    prompt = (f"你是導師。分析809班學生『{t_stu}』在{t_sub}({t_rng})表現：個人{i_score}分，平均{c_mean:.2f}分，標準差{c_std:.2f}。給予250字建議。")
                     response = model.generate_content(prompt)
                     st.session_state.update({'last_report': response.text, 'last_target': t_stu, 'ai_info': f"科目：{t_sub} | 範圍：{t_rng} | 平均：{c_mean:.2f} | 標準差：{c_std:.2f}"})
                 
                 if st.session_state['last_report']:
-                    st.markdown("---")
                     st.info(st.session_state['last_report'])
             else: st.warning("無符合數據")
 
@@ -148,11 +144,9 @@ else:
             max_d = temp_dt.max().date() if not df_grades_raw.empty else date.today()
             
             date_range = st.date_input("📅 篩選日期區間", value=(min_d, max_d))
-            if isinstance(date_range, tuple) and len(date_range) == 2:
-                df_grades = df_grades_raw[(df_grades_raw['日期'] >= date_range[0]) & (df_grades_raw['日期'] <= date_range[1])]
-            else: df_grades = df_grades_raw
+            df_grades = df_grades_raw[(df_grades_raw['日期'] >= date_range[0]) & (df_grades_raw['日期'] <= date_range[1])] if isinstance(date_range, tuple) and len(date_range) == 2 else df_grades_raw
 
-            mode = st.radio("模式選擇：", ["單科排行", "段考總表", "個人歷次"], horizontal=True)
+            mode = st.radio("統計模式：", ["單科排行", "段考總表", "個人段考成績", "個人歷次"], horizontal=True)
             st.markdown("---")
             
             if mode == "單科排行":
@@ -165,16 +159,11 @@ else:
                     rdf["班級平均"] = pd.to_numeric(rdf["分數"], errors='coerce').mean()
                     rdf["排序"] = rdf["分數"].rank(ascending=False, method='min').astype(int)
                     final = rdf[["姓名", "分數", "班級平均", "排序"]].sort_values("排序")
-                    # 修復點：使用 .format() 強制表格顯示小數點兩位
-                    st.dataframe(
-                        final.style.map(style_low_scores, subset=['分數'])
-                        .format({"班級平均": "{:.2f}"}), 
-                        use_container_width=True
-                    )
+                    st.dataframe(final.style.map(style_low_scores, subset=['分數']).format({"班級平均": "{:.2f}"}), use_container_width=True)
                     st.session_state['df_rank'], st.session_state['info_rank'] = final, f"{ss} ({sr})"
 
             elif mode == "段考總表":
-                stype = st.selectbox("段考類別", ["第一次段考", "第二次段考", "第三次段考"])
+                stype = st.selectbox("段考類別", ["第一次段考", "第二次段考", "第三次段考"], key="tab2_stype")
                 tdf = df_grades[df_grades["考試類別"] == stype].copy()
                 if not tdf.empty:
                     tdf["分數"] = pd.to_numeric(tdf["分數"], errors='coerce').fillna(0)
@@ -183,14 +172,23 @@ else:
                     p_df_int["平均"] = p_df.mean(axis=1)
                     p_df_int["排序"] = p_df_int["平均"].rank(ascending=False, method='min').astype(int)
                     final = p_df_int.sort_values("排序")
-                    style_cols = [c for c in final.columns if c not in ['平均', '排序']]
-                    # 修復點：強制總表平均顯示兩位
-                    st.dataframe(
-                        final.style.map(style_low_scores, subset=style_cols)
-                        .format({"平均": "{:.2f}"}), 
-                        use_container_width=True
-                    )
+                    st.dataframe(final.style.map(style_low_scores, subset=[c for c in final.columns if c not in ['平均', '排序']]).format({"平均": "{:.2f}"}), use_container_width=True)
                     st.session_state['df_total'], st.session_state['info_total'] = final, stype
+
+            # 新增功能：個人段考成績
+            elif mode == "個人段考成績":
+                c1, c2 = st.columns(2)
+                with c1: target_s = st.selectbox("選擇學生", df_grades_raw["姓名"].unique().tolist(), key="ps_exam_s")
+                with c2: target_e = st.selectbox("選擇段考", ["第一次段考", "第二次段考", "第三次段考"], key="ps_exam_e")
+                ps_df = df_grades[(df_grades["姓名"] == target_s) & (df_grades["考試類別"] == target_e)].copy()
+                if not ps_df.empty:
+                    ps_df["分數"] = safe_to_int(ps_df["分數"])
+                    p_avg = round(ps_df["分數"].mean(), 2)
+                    st.metric(f"{target_s} - {target_e} 平均分", f"{p_avg:.2f}")
+                    final = ps_df[["科目", "考試範圍", "分數"]]
+                    st.dataframe(final.style.map(style_low_scores, subset=['分數']), use_container_width=True)
+                    st.session_state['df_ps_exam'], st.session_state['info_ps_exam'] = final, f"{target_s}_{target_e}"
+                else: st.warning("該生在此段考尚無成績數據")
 
             elif mode == "個人歷次":
                 target_s = st.selectbox("選擇查詢學生", df_grades_raw["姓名"].unique().tolist())
@@ -203,7 +201,7 @@ else:
 
         with tabs[2]:
             st.subheader("📥 報表下載中心")
-            rtype = st.radio("選擇匯出格式：", ["AI 個人診斷報告", "單科成績排行榜單", "全班段考總成績單", "學生個人歷史成績表"])
+            rtype = st.radio("選擇匯出格式：", ["AI 個人診斷報告", "單科成績排行榜單", "全班段考總成績單", "個人段考成績單", "學生個人歷史成績表"])
             if st.button("🚀 生成 PDF", use_container_width=True):
                 try:
                     pdf = FPDF()
@@ -219,9 +217,9 @@ else:
                     elif rtype == "單科成績排行榜單" and st.session_state['df_rank'] is not None:
                         pdf.cell(0, 15, txt=f"809 班 {st.session_state['info_rank']} 排行榜", ln=True, align='C')
                         pdf.set_font("ChineseFont", size=11)
-                        for _, row in st.session_state['df_rank'].iterrows():
-                            pdf.cell(45, h, str(row["姓名"]), 1); pdf.cell(45, h, str(int(row["分數"])), 1)
-                            pdf.cell(45, h, f"{row['班級平均']:.2f}", 1); pdf.cell(45, h, str(int(row["排序"])), 1); pdf.ln()
+                        for _, r in st.session_state['df_rank'].iterrows():
+                            pdf.cell(45, h, str(r["姓名"]), 1); pdf.cell(45, h, str(int(r["分數"])), 1)
+                            pdf.cell(45, h, f"{r['班級平均']:.2f}", 1); pdf.cell(45, h, str(int(r["排序"])), 1); pdf.ln()
 
                     elif rtype == "全班段考總成績單" and st.session_state['df_total'] is not None:
                         pdf.cell(0, 15, txt=f"809 班 {st.session_state['info_total']} 成績單", ln=True, align='C')
@@ -236,6 +234,17 @@ else:
                                 pdf.cell(cw, h, txt, 1, 0, 'C')
                             pdf.ln()
 
+                    # 新增下載邏輯：個人段考成績
+                    elif rtype == "個人段考成績單" and st.session_state['df_ps_exam'] is not None:
+                        pdf.cell(0, 15, txt=f"809 班 {st.session_state['info_ps_exam']} 成績單", ln=True, align='C')
+                        pdf.set_font("ChineseFont", size=11)
+                        df = st.session_state['df_ps_exam']; cw = 180 / len(df.columns)
+                        for c in df.columns: pdf.cell(cw, h, str(c), 1, 0, 'C')
+                        pdf.ln()
+                        for _, r in df.iterrows():
+                            pdf.cell(cw, h, str(r["科目"]), 1, 0, 'C'); pdf.cell(cw, h, str(r["考試範圍"]), 1, 0, 'C')
+                            pdf.cell(cw, h, str(int(r["分數"])), 1, 0, 'C'); pdf.ln()
+
                     elif rtype == "學生個人歷史成績表" and st.session_state['df_personal'] is not None:
                         pdf.cell(0, 15, txt=f"809 班 {st.session_state['info_personal']} 歷史成績", ln=True, align='C')
                         pdf.set_font("ChineseFont", size=10)
@@ -246,6 +255,7 @@ else:
                             pdf.cell(cw, h, str(row["日期"]), 1, 0, 'C'); pdf.cell(cw, h, str(row["科目"]), 1, 0, 'C')
                             pdf.cell(cw, h, str(row["考試類別"]), 1, 0, 'C'); pdf.cell(cw, h, str(row["考試範圍"]), 1, 0, 'C')
                             pdf.cell(cw, h, str(int(row["分數"])), 1, 0, 'C'); pdf.ln()
+                    else: st.warning("請先在數據中心完成統計查詢"); st.stop()
                     
                     st.download_button("📥 下載 PDF", bytes(pdf.output()), "809_Report.pdf", "application/pdf")
                 except Exception as e: st.error(f"生成失敗：{e}")

@@ -173,7 +173,7 @@ else:
                 
                 if not p_pool.empty:
                     sid = to_int_val(df_stu[df_stu["姓名"] == t_s]["學號"].values[0])
-                    rows = []; grades_for_ind = []; sum_pts = 0; total_score = 0
+                    rows = []; grades_for_ind = []; sum_pts = 0; total_score = 0; count_sub = 0
                     soc_avg_pool = pool[pool["科目"].isin(SOC_COLS)].pivot_table(index="姓名", values="分數", aggfunc="mean")
 
                     for sub in SUBJECT_ORDER:
@@ -181,6 +181,7 @@ else:
                         if not match.empty:
                             s = to_int_val(match["分數"].values[0])
                             total_score += s
+                            count_sub += 1
                             sub_all = pool[pool["科目"] == sub]["分數"]
                             g, p = ("", "") if sub in SOC_COLS else get_grade_info(s)
                             if sub not in SOC_COLS:
@@ -199,14 +200,16 @@ else:
                                 sr.update(get_dist_dict(soc_avg_pool["分數"]))
                                 rows.append(sr)
 
-                    rank_df = pool.pivot_table(index="姓名", values="分數", aggfunc="sum")
+                    # 排名邏輯：基於該考試類別下所有學生的 7 科總分
+                    rank_df = pool[pool["科目"].isin(SUBJECT_ORDER)].pivot_table(index="姓名", values="分數", aggfunc="sum")
                     rank_df["排名"] = rank_df["分數"].rank(ascending=False, method='min').astype(int)
                     curr_rank = rank_df.loc[t_s, "排名"]
                     overall_ind = calculate_overall_indicator(grades_for_ind)
 
                     m1, m2, m3, m4, m5 = st.columns(5)
                     m1.metric("總分", total_score)
-                    m2.metric("五科平均", format_avg(total_score/len(rows)))
+                    # 修正：改為七科平均 (以 SUBJECT_ORDER 中實際有成績的科目數計算)
+                    m2.metric("七科平均", format_avg(total_score/count_sub) if count_sub > 0 else "0")
                     m3.metric("總積點", sum_pts)
                     
                     with m4:
@@ -229,6 +232,7 @@ else:
                 tdf = f_df[f_df["考試類別"] == stype].copy()
                 if not tdf.empty:
                     piv = tdf.pivot_table(index="姓名", columns="科目", values="分數", aggfunc="mean").round(0).astype(int)
+                    # 修正：總平均計算範圍確保涵蓋 SUBJECT_ORDER (七科)
                     piv["總平均"] = tdf.pivot_table(index="姓名", columns="科目", values="分數", aggfunc="mean")[SUBJECT_ORDER].mean(axis=1)
                     piv["排名"] = piv["總平均"].rank(ascending=False, method='min').astype(int)
                     piv = piv.sort_values("排名")
@@ -242,7 +246,7 @@ else:
                 st.dataframe(d_df, hide_index=True, use_container_width=True)
                 st.session_state['d_rpt'] = {"title": f"{st_name}-平時成績紀錄", "meta": f"日期: {date.today()}", "df": d_df}
 
-        # --- AI 診斷分析區 (新增統計說明邏輯) ---
+        # --- AI 診斷分析區 ---
         with tabs[1]:
             st.subheader("🤖 AI 智慧診斷 (含統計意義分析)")
             ai_name = st.selectbox("選擇分析對象", df_stu["姓名"].tolist(), key="ai_sel")
@@ -254,7 +258,6 @@ else:
                 target_student = class_data[class_data["姓名"] == ai_name]
                 
                 if not target_student.empty:
-                    # 彙整數據與計算統計量
                     stats_report = []
                     for sub in target_student['科目'].unique():
                         s_score = target_student[target_student['科目'] == sub]['分數'].iloc[0]

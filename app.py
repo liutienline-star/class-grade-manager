@@ -151,6 +151,8 @@ else:
     if st.session_state['authenticated']:
         tabs = st.tabs(["📊 數據中心", "🤖 AI 診斷分析", "📥 報表輸出中心"])
         df_raw = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
+        # 強制轉換分數為數字以利統計計算
+        df_raw["分數"] = pd.to_numeric(df_raw["分數"], errors='coerce')
         df_stu = conn.read(spreadsheet=url, worksheet="學生名單", ttl=0)
         df_raw['日期'] = pd.to_datetime(df_raw['時間戳記']).dt.date
 
@@ -202,13 +204,11 @@ else:
                     curr_rank = rank_df.loc[t_s, "排名"]
                     overall_ind = calculate_overall_indicator(grades_for_ind)
 
-                    # --- 數據儀表板修正區 ---
                     m1, m2, m3, m4, m5 = st.columns(5)
                     m1.metric("總分", total_score)
                     m2.metric("五科平均", format_avg(total_score/len(rows)))
                     m3.metric("總積點", sum_pts)
                     
-                    # 【重要修正：總標示】不使用 st.metric，改用自定義 HTML
                     with m4:
                         st.markdown(f"""
                             <div class="indicator-box">
@@ -232,7 +232,6 @@ else:
                     piv["總平均"] = tdf.pivot_table(index="姓名", columns="科目", values="分數", aggfunc="mean")[SUBJECT_ORDER].mean(axis=1)
                     piv["排名"] = piv["總平均"].rank(ascending=False, method='min').astype(int)
                     piv = piv.sort_values("排名")
-                    # 為避免 ImportError，將 gradient 移除或確保環境已裝 matplotlib
                     st.dataframe(piv.style.format(format_avg, subset=["總平均"]), use_container_width=True)
                     st.session_state['c_rpt'] = {"title": f"班級總表-{stype}", "meta": f"統計日期:{date.today()}", "df": piv.reset_index()}
 
@@ -243,20 +242,54 @@ else:
                 st.dataframe(d_df, hide_index=True, use_container_width=True)
                 st.session_state['d_rpt'] = {"title": f"{st_name}-平時成績紀錄", "meta": f"日期: {date.today()}", "df": d_df}
 
-        # AI 與報表頁籤保持不變...
+        # --- AI 診斷分析區 (新增統計說明邏輯) ---
         with tabs[1]:
-            st.subheader("🤖 AI 智慧診斷")
+            st.subheader("🤖 AI 智慧診斷 (含統計意義分析)")
             ai_name = st.selectbox("選擇分析對象", df_stu["姓名"].tolist(), key="ai_sel")
             ai_type = st.radio("診斷範圍", ["最近一次段考", "近期平時考表現"], horizontal=True)
+            
             if st.button("🚀 啟動 AI 深度分析"):
-                ai_src = f_df[f_df["姓名"] == ai_name]
-                filter_type = "平時考" if "平時" in ai_type else "第一次段考"
-                target = ai_src[ai_src["考試類別"] == filter_type]
-                if not target.empty:
-                    data_str = "\n".join([f"- {r['科目']}: {r['分數']}" for _, r in target.iterrows()])
-                    prompt = f"請根據學生 {ai_name} 的數據給予學習診斷：\n{data_str}"
-                    res = model.generate_content(prompt)
-                    st.info(res.text)
+                filter_cat = "平時考" if "平時" in ai_type else "第一次段考"
+                class_data = f_df[f_df["考試類別"] == filter_cat]
+                target_student = class_data[class_data["姓名"] == ai_name]
+                
+                if not target_student.empty:
+                    # 彙整數據與計算統計量
+                    stats_report = []
+                    for sub in target_student['科目'].unique():
+                        s_score = target_student[target_student['科目'] == sub]['分數'].iloc[0]
+                        c_mean = class_data[class_data['科目'] == sub]['分數'].mean()
+                        c_std = class_data[class_data['科目'] == sub]['分數'].std()
+                        
+                        stats_report.append(
+                            f"- {sub}: 個人得分={s_score}, 班級平均={c_mean:.1f}, 標準差={c_std:.1f}"
+                        )
+                    
+                    data_summary = "\n".join(stats_report)
+                    
+                    prompt = f"""
+                    你是班導師，請針對學生「{ai_name}」在「{filter_cat}」的表現進行深度診斷：
+                    
+                    【數據資料】
+                    {data_summary}
+                    
+                    【分析任務】
+                    1. 結合「班級平均」說明該生各科的相對優劣勢。
+                    2. 解釋「標準差」的統計意義：
+                       - 若標準差小且學生分數高於平均，代表該生在競爭最激烈的核心群。
+                       - 若標準差大，代表學生程度落差大，說明該生在該科目的領先或落後程度。
+                    3. 給予專業、溫暖且具體的後續學習建議。
+                    
+                    請用 Markdown 格式輸出，語氣要像是與家長或學生面談。
+                    """
+                    
+                    with st.spinner("AI 正在分析統計數據並撰寫建議..."):
+                        res = model.generate_content(prompt)
+                        st.markdown('<div class="report-card">', unsafe_allow_html=True)
+                        st.markdown(res.text)
+                        st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    st.warning(f"找不到 {ai_name} 在 {filter_cat} 的相關成績數據。")
 
         with tabs[2]:
             st.subheader("📥 報表輸出中心")

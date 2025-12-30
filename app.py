@@ -24,6 +24,11 @@ states = ['authenticated', 'last_report', 'last_target', 'df_rank', 'df_total', 
 for s in states:
     if s not in st.session_state: st.session_state[s] = None
 
+# 定義紅字樣式函數
+def style_low_scores(val):
+    color = 'red' if isinstance(val, (int, float)) and val < 60 else 'black'
+    return f'color: {color}'
+
 # --- 3. 側邊欄導覽 ---
 st.sidebar.title("🏫 809 班級管理系統")
 role = st.sidebar.radio("請選擇操作功能：", ["學生專區 (成績錄入)", "老師專區 (統計與報表)"])
@@ -46,7 +51,6 @@ if role == "學生專區 (成績錄入)":
             subject = st.selectbox("科目名稱", df_courses["科目名稱"].tolist())
             exam_range = st.text_input("考試範圍", placeholder="例如：L1-L3")
         with col2:
-            # --- 修改處：移除 0-100 的限制 ---
             score = st.number_input("得分", step=1) 
             etype = st.selectbox("考試類別", ["平時考", "第一次段考", "第二次段考", "第三次段考"])
         
@@ -58,7 +62,7 @@ if role == "學生專區 (成績錄入)":
                 "考試類別": etype, "考試範圍": exam_range
             }])
             conn.update(spreadsheet=url, worksheet="成績資料", data=pd.concat([df_grades, new_row], ignore_index=True))
-            st.success(f"✅ {name} 的資料（分數：{score}）已存入。")
+            st.success(f"✅ {name} 的資料已存入。")
 
 # --- 5. 老師專區 ---
 else:
@@ -74,7 +78,7 @@ else:
     if st.session_state['authenticated']:
         tabs = st.tabs(["🤖 AI 學習分析", "📊 數據統計中心", "📄 報表下載中心"])
 
-        # TAB 1: AI 分析 (包含平均與標準差)
+        # TAB 1: AI 分析
         with tabs[0]:
             st.subheader("🤖 AI 個人化學習建議")
             df_grades_raw = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
@@ -103,8 +107,7 @@ else:
                               f"1. 個人得分：{i_score}分\n"
                               f"2. 班級平均：{c_mean}分\n"
                               f"3. 班級標準差：{c_std}\n"
-                              f"請根據這些數據（考慮個人與平均的差距，以及標準差反映的班級競爭情況），"
-                              f"給予250字繁體中文建議。")
+                              f"請給予250字繁體中文建議。")
                     response = model.generate_content(prompt)
                     st.session_state['last_report'] = response.text
                     st.session_state['last_target'] = t_stu
@@ -113,13 +116,13 @@ else:
                     st.markdown(response.text)
             else: st.warning("無符合數據")
 
-        # TAB 2: 數據統計中心 (含日期區間)
+        # TAB 2: 數據統計中心
         with tabs[1]:
             st.subheader("📊 班級數據統計")
             df_grades_raw['日期'] = pd.to_datetime(df_grades_raw['時間戳記']).dt.date
             min_date = df_grades_raw['日期'].min() if not df_grades_raw.empty else date.today()
             max_date = df_grades_raw['日期'].max() if not df_grades_raw.empty else date.today()
-            date_range = st.date_input("📅 選擇統計日期區間", value=(min_date, max_date))
+            date_range = st.date_input("📅 選擇統計日期區稱", value=(min_date, max_date))
             
             if isinstance(date_range, tuple) and len(date_range) == 2:
                 start_date, end_date = date_range
@@ -138,7 +141,8 @@ else:
                     rdf["班級平均"] = round(rdf["分數"].mean(), 2)
                     rdf["排序"] = rdf["分數"].rank(ascending=False, method='min').astype(int)
                     final_rank = rdf[["姓名", "分數", "班級平均", "排序"]].sort_values("排序")
-                    st.dataframe(final_rank, use_container_width=True)
+                    # --- 加入紅字標示 ---
+                    st.dataframe(final_rank.style.map(style_low_scores, subset=['分數']), use_container_width=True)
                     st.session_state['df_rank'] = final_rank
                     st.session_state['info_rank'] = f"{ss} ({sr})"
                 else: st.info("區間內無數據")
@@ -151,7 +155,9 @@ else:
                     p_df["平均"] = round(p_df.mean(axis=1), 2)
                     p_df["排序"] = p_df["平均"].rank(ascending=False, method='min').astype(int)
                     final_total = p_df.sort_values("排序")
-                    st.dataframe(final_total, use_container_width=True)
+                    # --- 加入紅字標示 (排除排序欄位) ---
+                    style_cols = [c for c in final_total.columns if c != '排序']
+                    st.dataframe(final_total.style.map(style_low_scores, subset=style_cols), use_container_width=True)
                     st.session_state['df_total'] = final_total
                     st.session_state['info_total'] = stype
                 else: st.info("區間內無段考數據")
@@ -162,7 +168,8 @@ else:
                 if not ps_df.empty:
                     ps_df = ps_df.sort_values("日期", ascending=False)
                     final_ps = ps_df[["日期", "科目", "考試類別", "考試範圍", "分數"]]
-                    st.dataframe(final_ps, use_container_width=True)
+                    # --- 加入紅字標示 ---
+                    st.dataframe(final_ps.style.map(style_low_scores, subset=['分數']), use_container_width=True)
                     st.session_state['df_personal'] = final_ps
                     st.session_state['info_personal'] = target_s
                 else: st.info("無紀錄")
@@ -194,6 +201,7 @@ else:
                         pdf.cell(0, 15, txt=f"809 班 {st.session_state['info_rank']} 排行榜", ln=True, align='C')
                         pdf.set_font("ChineseFont", size=12)
                         for _, row in st.session_state['df_rank'].iterrows():
+                            # PDF 部分保持黑色字體以符合正式報表需求
                             pdf.cell(45, h, str(row["姓名"]), 1); pdf.cell(45, h, str(row["分數"]), 1)
                             pdf.cell(45, h, str(row["班級平均"]), 1); pdf.cell(45, h, str(row["排序"]), 1); pdf.ln()
                         fn = f"809_Rank.pdf"

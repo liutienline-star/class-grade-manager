@@ -277,10 +277,63 @@ else:
                         res = model.generate_content(prompt)
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
 
-        with tabs[2]: # 📥 報表下載中心 (恢復完整輸出)
-            st.subheader("📥 報表下載中心")
-            if st.session_state['current_rpt_df'] is not None:
-                st.markdown(f"**📄 當前可輸出：{st.session_state['current_rpt_name']}**")
-                st.dataframe(st.session_state['current_rpt_df'], use_container_width=True)
-                csv = st.session_state['current_rpt_df'].to_csv(index=False).encode('utf-8-sig')
-                st.download_button("📥 下載 CSV (Excel 相容)", csv, f"{st.session_state['current_rpt_name']}.csv", "text/csv", use_container_width=True)
+with tabs[2]: # 📥 報表輸出中心 (個人/全班/平時全功能恢復)
+            st.subheader("📥 報表輸出中心")
+            
+            if st.session_state.get('current_rpt_df') is not None:
+                rpt_df = st.session_state['current_rpt_df']
+                rpt_name = st.session_state['current_rpt_name']
+                
+                # 顯示報表資訊與狀態
+                st.markdown(f"""
+                <div style="background-color: #e9ecef; padding: 15px; border-left: 5px solid #2d3436; border-radius: 5px; margin-bottom: 20px;">
+                    <span style="font-size: 1.2rem; font-weight: 800;">📋 當前報表：{rpt_name}</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # --- 根據報表名稱關鍵字，自動調整呈現邏輯 ---
+                if "班級總表" in rpt_name:
+                    st.info("📊 模式：全班段考總表 (包含各科平均、總平均與排名)")
+                elif "平時成績" in rpt_name:
+                    st.info("📝 模式：個人平時成績歷次 (包含考試日期與範圍)")
+                else:
+                    st.info("👤 模式：個人段考成績單 (包含等級、點數、班平均與分佈)")
+
+                # 1. 完整報表預覽 (確保寬屏 1850px 下展示清晰)
+                st.dataframe(rpt_df, use_container_width=True, hide_index=True)
+
+                # 2. 數據統計摘要 (輔助確認)
+                c_count, c_mean = len(rpt_df), 0
+                if "分數" in rpt_df.columns:
+                    c_mean = rpt_df["分數"].mean()
+                
+                st.write(f"📈 筆數統計：共 {c_count} 筆資料" + (f" | 平均分數：{format_num(c_mean)}" if c_mean > 0 else ""))
+
+                # 3. 下載功能 (UTF-8-SIG 確保 Excel 開啟不亂碼)
+                st.markdown("---")
+                csv_data = rpt_df.to_csv(index=False).encode('utf-8-sig')
+                
+                col_dl, col_info = st.columns([1, 2])
+                with col_dl:
+                    st.download_button(
+                        label="📥 下載此報表 (CSV 檔案)",
+                        data=csv_data,
+                        file_name=f"{rpt_name}_{datetime.now().strftime('%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                with col_info:
+                    st.caption("⚠️ 注意：若需修改報表內容，請先回到『數據查詢中心』重新篩選。")
+
+            else:
+                # 若尚未有資料時的引導介面
+                st.warning("目前沒有可輸出的報表資料。")
+                st.markdown("""
+                ### 💡 如何產生報表？
+                1. 前往 **「📊 數據查詢中心」** 分頁。
+                2. 根據您的需求選擇：
+                    * **個人段考成績單**：查看單一學生的各科等級與排名。
+                    * **班級段考總表**：查看全班排名與各科成績對照。
+                    * **個人平時成績歷次**：追蹤特定學生的日常測驗表現。
+                3. 點擊查詢後，系統會自動將該份資料同步至此處。
+                """)

@@ -4,59 +4,119 @@ import google.generativeai as genai
 import pandas as pd
 import numpy as np
 from datetime import datetime, date
-import pytz # 處理台灣時區修正
+import pytz 
 from collections import Counter
 import time
 
-# --- 1. 系統初始化配置 (1600px 寬屏) ---
+# --- 1. 系統初始化配置 (升級至 1850px 極致寬屏，防止擠壓) ---
 st.set_page_config(page_title="809班成績管理系統", layout="wide", page_icon="🏫")
 
-# 強制設定台灣時區 (解決時間差問題)
+# 強制設定台灣時區 (維持原樣)
 TW_TZ = pytz.timezone('Asia/Taipei')
 
 SUBJECT_ORDER = ["國文", "英文", "數學", "自然", "歷史", "地理", "公民"]
 SOC_COLS = ["歷史", "地理", "公民"]
 DIST_LABELS = ["0-10", "10-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70-80", "80-90", "90-100"]
 
-# --- 2. 完整視覺 CSS (新暴力主義：粗黑邊框、立體陰影、圖標配色) ---
+# --- 2. 視覺 CSS 強化 (解決切割、加大寬度、保留圖示) ---
 st.markdown("""
     <style>
+    /* 全局背景與視窗加大 */
     .main { background-color: #fcfcfc; }
-    .block-container { max-width: 1600px; padding-top: 1.5rem; }
-    html, body, [class*="st-"] { font-size: 1.15rem; font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; }
+    .block-container { 
+        max-width: 1850px; 
+        padding-top: 1.5rem; 
+        padding-left: 4rem; 
+        padding-right: 4rem; 
+    }
     
-    /* 容器與圖框 */
+    /* 字體大小優化：防止縮放導致的切割 */
+    html, body, [class*="st-"] { 
+        font-size: 1.15rem; 
+        font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; 
+    }
+
+    /* 🛡️ 表格防切割核心邏輯 */
+    div[data-testid="stDataFrame"] td, 
+    div[data-testid="stDataFrame"] th {
+        white-space: nowrap !important; /* 強制不換行，解決切割問題 */
+        padding: 12px 20px !important;
+    }
+
+    /* 容器：新暴力主義強化版 */
     .filter-container { 
-        background-color: #f1f3f6; padding: 25px; border-radius: 15px; 
-        border: 2px solid #2d3436; margin-bottom: 25px; box-shadow: 4px 4px 0px rgba(0,0,0,0.05); 
+        background-color: #f1f3f6; 
+        padding: 30px; 
+        border-radius: 18px; 
+        border: 3px solid #2d3436; 
+        margin-bottom: 30px; 
+        box-shadow: 8px 8px 0px rgba(0,0,0,0.06); 
     }
 
-    /* 成績指標卡 (Metric) */
+    /* 成績指標卡 (Metric)：增加高度與內距防止數值切割 */
     div[data-testid="stMetric"] { 
-        background-color: #ffffff; padding: 20px; border-radius: 12px; 
-        border: 2px solid #2d3436; box-shadow: 5px 5px 0px rgba(0,0,0,0.1); 
+        background-color: #ffffff; 
+        padding: 25px !important; 
+        border-radius: 15px; 
+        border: 3px solid #2d3436; 
+        box-shadow: 7px 7px 0px rgba(0,0,0,0.1); 
+        min-height: 160px; /* 固定高度防止擠壓 */
     }
-    div[data-testid="stMetricLabel"] { font-size: 1.25rem !important; font-weight: 800 !important; color: #444; }
-    div[data-testid="stMetricValue"] { font-size: 2.8rem !important; font-weight: 900 !important; color: #d63384 !important; }
+    div[data-testid="stMetricLabel"] { 
+        font-size: 1.3rem !important; 
+        font-weight: 800 !important; 
+        color: #444; 
+        margin-bottom: 10px;
+    }
+    div[data-testid="stMetricValue"] { 
+        font-size: 3.2rem !important; 
+        font-weight: 900 !important; 
+        color: #d63384 !important; 
+    }
 
-    /* 總標示專用立體方框 */
+    /* 總標示方框：優化文字間距 */
     .indicator-box { 
-        background-color: #ffffff; padding: 15px; border-radius: 12px; 
-        border: 2px solid #2d3436; text-align: center; box-shadow: 5px 5px 0px rgba(0,0,0,0.1);
-        min-height: 115px; display: flex; flex-direction: column; justify-content: center;
+        background-color: #ffffff; 
+        padding: 20px; 
+        border-radius: 15px; 
+        border: 3px solid #2d3436; 
+        text-align: center; 
+        box-shadow: 7px 7px 0px rgba(0,0,0,0.1);
+        min-height: 160px; 
+        display: flex; 
+        flex-direction: column; 
+        justify-content: center;
     }
-    .indicator-label { font-size: 1.25rem; font-weight: 800; color: #444; margin-bottom: 3px; }
-    .indicator-value { font-size: 1.7rem; font-weight: 900; color: #0d6efd; }
+    .indicator-label { font-size: 1.3rem; font-weight: 800; color: #444; margin-bottom: 5px; }
+    .indicator-value { font-size: 1.9rem; font-weight: 900; color: #0d6efd; letter-spacing: 1px; }
 
-    /* AI 報告書樣式 */
+    /* AI 報告書：美化邊距與行高 */
     .report-card { 
-        background: #ffffff; padding: 35px; border: 2px solid #2d3436; 
-        border-radius: 18px; line-height: 1.9; box-shadow: 8px 8px 0px rgba(0,0,0,0.05); 
+        background: #ffffff; 
+        padding: 40px; 
+        border: 3px solid #2d3436; 
+        border-radius: 22px; 
+        line-height: 2.1; 
+        box-shadow: 10px 10px 0px rgba(0,0,0,0.05); 
+    }
+    
+    /* 按鈕美化：保留原有圖示並增加點擊感 */
+    .stButton>button {
+        border: 3px solid #2d3436 !important;
+        border-radius: 12px !important;
+        font-weight: 800 !important;
+        padding: 0.5rem 2rem !important;
+        box-shadow: 4px 4px 0px #2d3436 !important;
+        transition: all 0.1s;
+    }
+    .stButton>button:active {
+        transform: translate(2px, 2px);
+        box-shadow: 0px 0px 0px #2d3436 !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. 核心底層邏輯 (精確度至小數後兩位) ---
+# --- 3. 核心底層邏輯 (完全保留：精確度至小數後兩位、等級判定、社會整合) ---
 def get_grade_info(score):
     if score >= 95: return "A++", 7
     if score >= 91: return "A+", 6
@@ -69,7 +129,6 @@ def get_grade_info(score):
 def format_num(val):
     try:
         f = float(val)
-        # 修正：確保小數點後兩位，若為整數則不顯示小數點
         return f"{round(f, 2):.2f}".rstrip('0').rstrip('.')
     except: return "0"
 
@@ -82,7 +141,7 @@ def get_dist_dict(series):
     bins = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 101]
     return pd.cut(series, bins=bins, labels=DIST_LABELS, right=False).value_counts().sort_index().to_dict()
 
-# --- 4. 初始化數據連線 (即時更新核心) ---
+# --- 4. 初始化數據連線 (保持原樣) ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 url = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
@@ -92,11 +151,11 @@ if 'authenticated' not in st.session_state: st.session_state['authenticated'] = 
 if 'current_rpt_df' not in st.session_state: st.session_state['current_rpt_df'] = None
 if 'current_rpt_name' not in st.session_state: st.session_state['current_rpt_name'] = ""
 
-# --- 5. 功能切換 ---
+# --- 5. 功能切換 (保持原樣) ---
 st.sidebar.markdown("## 🏫 809 班級管理")
 role = st.sidebar.radio("功能切換：", ["📝 學生：成績錄入", "📊 老師：統計報表"])
 
-# --- 6. 學生錄入介面 (台灣時間校準 + 即時 Session 更新) ---
+# --- 6. 學生錄入介面 (保持原樣) ---
 if role == "📝 學生：成績錄入":
     st.title("📝 學生成績自主錄入")
     df_students = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
@@ -114,7 +173,6 @@ if role == "📝 學生：成績錄入":
         
         if st.form_submit_button("🚀 ✅ 提交成績"):
             sid = int(df_students[df_students["姓名"] == name]["學號"].values[0])
-            # 💡 修正：使用台灣時間
             now_tw = datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M:%S")
             new_row = pd.DataFrame([{
                 "時間戳記": now_tw, "學號": sid, "姓名": name, "科目": subject, 
@@ -128,7 +186,6 @@ if role == "📝 學生：成績錄入":
     st.subheader("🔍 最近 5 筆錄入動態")
     my_records = st.session_state['df_grades'][st.session_state['df_grades']["姓名"] == name].copy()
     if not my_records.empty:
-        # 💡 修復：ValueError 預防
         my_records["時間戳記"] = pd.to_datetime(my_records["時間戳記"], errors='coerce')
         display_df = my_records.dropna(subset=["時間戳記"]).sort_values("時間戳記", ascending=False).head(5)
         st.dataframe(display_df[["時間戳記", "科目", "考試類別", "分數", "考試範圍"]], hide_index=True, use_container_width=True)
@@ -140,7 +197,7 @@ if role == "📝 學生：成績錄入":
                 conn.update(spreadsheet=url, worksheet="成績資料", data=st.session_state['df_grades'])
                 st.warning("資料已撤回！"); time.sleep(0.5); st.rerun()
 
-# --- 7. 老師專區 (還原：社會整合、標示積點、標準差 AI 分析) ---
+# --- 7. 老師專區 (保持原樣：社會整合、標示積點、標準差 AI 分析) ---
 else:
     if not st.session_state['authenticated']:
         st.markdown('<div class="filter-container" style="max-width:400px; margin: 100px auto;">', unsafe_allow_html=True)
@@ -155,7 +212,7 @@ else:
         df_raw["分數"] = pd.to_numeric(df_raw["分數"], errors='coerce')
         df_raw['日期'] = pd.to_datetime(df_raw['時間戳記'], errors='coerce').dt.date
 
-        with tabs[0]: # 數據查詢 (社會整合與精確平均)
+        with tabs[0]: 
             st.markdown('<div class="filter-container">', unsafe_allow_html=True)
             c_d1, c_d2, c_d3 = st.columns([1, 1, 2])
             with c_d1: start_d = st.date_input("📅 開始日期", date(2025, 1, 1))
@@ -188,7 +245,7 @@ else:
                             res = {"科目": sub, "分數": s, "等級": g, "點數": p, "班平均": format_num(sub_all.mean())}
                             res.update(get_dist_dict(sub_all)); rows.append(res)
                         
-                        if sub == "公民": # 還原：社會整合
+                        if sub == "公民": 
                             soc_data = p_pool[p_pool["科目"].isin(SOC_COLS)]
                             if not soc_data.empty:
                                 sa = soc_data["分數"].mean(); sg, sp = get_grade_info(sa)
@@ -223,7 +280,7 @@ else:
                     st.session_state['current_rpt_df'] = piv.reset_index()
                     st.session_state['current_rpt_name'] = f"班級總表_{stype}"
 
-        with tabs[1]: # 還原：AI 智慧診斷 (含標準差)
+        with tabs[1]: 
             st.subheader("🤖 AI 智慧診斷 (精準參數)")
             ai_name = st.selectbox("分析對象", df_raw["姓名"].unique(), key="ai_sel")
             ai_type = st.radio("數據源", ["最近一次段考", "近期平時考表現"], horizontal=True)
@@ -238,13 +295,13 @@ else:
                     for s in student_data['科目'].unique():
                         s_avg = student_data[student_data['科目']==s]['分數'].mean()
                         c_avg = target_data[target_data['科目']==s]['分數'].mean()
-                        c_std = target_data[target_data['科目']==s]['分數'].std() # 💡 還原：標準差
+                        c_std = target_data[target_data['科目']==s]['分數'].std()
                         stats.append(f"- {s}: 個人={format_num(s_avg)}, 班均={format_num(c_avg)}, 標準差(σ)={format_num(c_std)}")
                     with st.spinner("AI 解析數據中..."):
                         res = model.generate_content(f"你是台灣國中班導師，請根據數據分析表現並給予建議：\n{stats}")
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
 
-        with tabs[2]: # 報表輸出 (還原：下載與預覽)
+        with tabs[2]: 
             st.subheader("📥 報表下載中心")
             if st.session_state['current_rpt_df'] is not None:
                 st.markdown(f"**📄 當前：{st.session_state['current_rpt_name']}**")

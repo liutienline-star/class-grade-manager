@@ -12,11 +12,12 @@ import time
 st.set_page_config(page_title="809班成績管理系統", layout="wide", page_icon="🏫")
 
 TW_TZ = pytz.timezone('Asia/Taipei')
+# 定義標準科目排序
 SUBJECT_ORDER = ["國文", "英文", "數學", "自然", "歷史", "地理", "公民"]
 SOC_COLS = ["歷史", "地理", "公民"]
 DIST_LABELS = ["0-10", "10-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70-80", "80-90", "90-100"]
 
-# --- 2. 完整視覺 CSS (含美化標題框) ---
+# --- 2. 完整視覺 CSS (維持白色標題框與美化設計) ---
 st.markdown("""
     <style>
     .main { background-color: #fcfcfc; }
@@ -28,7 +29,7 @@ st.markdown("""
     }
     html, body, [class*="st-"] { font-size: 1.15rem; font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; }
     
-    /* 白色標題方框樣式 */
+    /* 白色標題方框 */
     .title-box {
         background-color: #ffffff;
         padding: 20px;
@@ -47,7 +48,7 @@ st.markdown("""
         border: 3px solid #2d3436; margin-bottom: 25px; box-shadow: 6px 6px 0px rgba(0,0,0,0.05); 
     }
 
-    /* 指標卡與指標盒 */
+    /* 指標卡與「總標示」方框優化 */
     div[data-testid="stMetric"] { 
         background-color: #ffffff; padding: 25px !important; border-radius: 14px; 
         border: 3px solid #2d3436; box-shadow: 7px 7px 0px rgba(0,0,0,0.1);
@@ -58,17 +59,16 @@ st.markdown("""
     .indicator-box { 
         background-color: #ffffff; padding: 20px; border-radius: 14px; 
         border: 3px solid #2d3436; text-align: center; box-shadow: 7px 7px 0px rgba(0,0,0,0.1);
-        min-height: 150px; display: flex; flex-direction: column; justify-content: center;
+        min-height: 160px; display: flex; flex-direction: column; justify-content: center;
     }
-    .indicator-label { font-size: 1.3rem; font-weight: 800; color: #444; }
-    .indicator-value { font-size: 1.8rem; font-weight: 900; color: #0d6efd; }
+    .indicator-label { font-size: 1.4rem; font-weight: 800; color: #2d3436; margin-bottom: 10px; }
+    .indicator-value { font-size: 2.5rem; font-weight: 900; color: #5d5fef; }
 
-    /* AI 報告書呈現區 */
+    /* AI 報告書區域 */
     .report-card { 
         background: #ffffff !important; padding: 40px; border: 3px solid #2d3436; 
         border-radius: 20px; line-height: 2.1; box-shadow: 8px 8px 0px rgba(0,0,0,0.05); color: #2d3436 !important; 
     }
-    /* 確保 Markdown 表格在報告書中漂亮顯示 */
     .report-card table { width: 100%; border-collapse: collapse; margin: 20px 0; }
     .report-card th, .report-card td { border: 2px solid #2d3436; padding: 12px; text-align: center; }
     .report-card th { background-color: #f8f9fa; }
@@ -114,7 +114,7 @@ if 'authenticated' not in st.session_state: st.session_state['authenticated'] = 
 st.sidebar.markdown("## 🏫 809 班級管理")
 role = st.sidebar.radio("功能切換：", ["📝 學生：成績錄入", "📊 老師：統計報表"])
 
-# --- 6. 學生錄入介面 ---
+# --- 6. 學生錄入介面 (保留即時動態與撤回功能) ---
 if role == "📝 學生：成績錄入":
     st.title("📝 學生成績自主錄入")
     df_students = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
@@ -141,7 +141,6 @@ if role == "📝 學生：成績錄入":
             conn.update(spreadsheet=url, worksheet="成績資料", data=st.session_state['df_grades'])
             st.success(f"🎊 錄入成功！系統時間：{now_tw}"); time.sleep(0.5); st.rerun()
 
-    # 即時資料更新與刪除選項
     st.markdown("---")
     st.subheader("🔍 最近 5 筆錄入動態")
     my_records = st.session_state['df_grades'][st.session_state['df_grades']["姓名"] == name].copy()
@@ -160,16 +159,13 @@ if role == "📝 學生：成績錄入":
 # --- 7. 老師專區 ---
 else:
     if not st.session_state['authenticated']:
-        # 標題方框：登入頁
         st.markdown('<div class="title-box">809班學生成績管理系統</div>', unsafe_allow_html=True)
         st.markdown('<div class="filter-container" style="max-width:500px; margin: 0 auto;">', unsafe_allow_html=True)
         st.subheader("🔑 老師管理系統登入")
         pwd = st.text_input("請輸入管理密碼", type="password")
         if st.button("🔓 驗證並登入", use_container_width=True):
-            if pwd == st.secrets["teacher"]["password"]: 
-                st.session_state['authenticated'] = True
-                st.rerun()
-            else: st.error("密碼錯誤，請重新輸入")
+            if pwd == st.secrets["teacher"]["password"]: st.session_state['authenticated'] = True; st.rerun()
+            else: st.error("密碼錯誤")
         st.markdown('</div>', unsafe_allow_html=True)
     
     if st.session_state['authenticated']:
@@ -179,7 +175,6 @@ else:
         df_raw['日期'] = pd.to_datetime(df_raw['時間戳記'], errors='coerce').dt.date
 
         with tabs[0]: 
-            # 標題方框：數據查詢中心
             st.markdown('<div class="title-box">809班學生成績管理系統 - 數據儀表板</div>', unsafe_allow_html=True)
             st.markdown('<div class="filter-container">', unsafe_allow_html=True)
             c_d1, c_d2, c_d3 = st.columns([1, 1, 2])
@@ -239,10 +234,13 @@ else:
                 t_s = st.selectbox("👤 選擇學生", df_stu["姓名"].tolist())
                 hist_df = f_df[(f_df["姓名"] == t_s) & (f_df["考試類別"] == "平時考")].copy()
                 if not hist_df.empty:
-                    st.dataframe(hist_df.sort_values("日期", ascending=False)[["日期", "科目", "分數", "考試範圍"]], hide_index=True, use_container_width=True)
+                    # --- 關鍵修正：自定義科目排序 ---
+                    hist_df['科目'] = pd.Categorical(hist_df['科目'], categories=SUBJECT_ORDER, ordered=True)
+                    # 排序：科目(依自定義) > 日期(最新在前)
+                    hist_df = hist_df.sort_values(["科目", "日期"], ascending=[True, False])
+                    st.dataframe(hist_df[["日期", "科目", "分數", "考試範圍"]], hide_index=True, use_container_width=True)
 
         with tabs[1]: 
-            # 標題方框：AI 智慧診斷
             st.markdown('<div class="title-box">AI 深度分析報告 - 809班</div>', unsafe_allow_html=True)
             st.markdown('<div class="filter-container">', unsafe_allow_html=True)
             ai_name = st.selectbox("分析對象", df_raw["姓名"].unique(), key="ai_sel")
@@ -257,7 +255,6 @@ else:
                 student_data = target_data[target_data["姓名"] == ai_name]
                 
                 if not student_data.empty:
-                    # 彙整數據表格給 AI
                     stats_str = "科目 | 個人平均 | 班級平均 | 標準差(σ)\n---|---|---|---\n"
                     for s in student_data['科目'].unique():
                         s_avg = student_data[student_data['科目']==s]['分數'].mean()
@@ -266,21 +263,14 @@ else:
                         stats_str += f"{s} | {format_num(s_avg)} | {format_num(c_avg)} | {format_num(c_std)}\n"
                     
                     with st.spinner("AI 導師閱卷診斷中..."):
-                        # 強化後的 AI Prompt
                         prompt = f"""
                         你是台灣國中的班導師，請針對以下學生成績數據進行深度分析報告：
-                        
                         1. **數據總覽表格**：請先將提供的數據轉換為 Markdown 表格呈現。
-                        2. **各科表現診斷**：針對每一科的個人分數相較於「班平均」與「標準差」進行診斷。例如：若分數超過班均加一個標準差，屬於表現優異；若低於班均，請分析其落後程度。
-                        3. **整體學習建議**：觀察各學科間是否存在偏科現象，並給予具體的學習補強建議。
-                        4. **導師的鼓勵**：語氣需專業且充滿溫情，像親切的導師一樣給予學生信心。
-
-                        學生姓名：{ai_name}
-                        考試類別：{filter_cat}
-                        數據來源：
-                        {stats_str}
+                        2. **各科表現診斷**：針對每一科的個人分數相較於「班平均」與「標準差」進行診斷。
+                        3. **整體學習建議**：觀察偏科現象並給予補強建議。
+                        4. **導師的鼓勵**：親切且專業的結語。
+                        學生姓名：{ai_name} | 考試類別：{filter_cat}
+                        數據來源：\n{stats_str}
                         """
                         res = model.generate_content(prompt)
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
-                else:
-                    st.error("此區間內無相關數據，請確認篩選日期或學生姓名")

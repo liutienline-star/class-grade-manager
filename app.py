@@ -4,7 +4,7 @@ import google.generativeai as genai
 import pandas as pd
 import numpy as np
 from datetime import datetime, date
-import pytz 
+import pytz
 from collections import Counter
 import time
 
@@ -32,15 +32,15 @@ st.markdown("""
     }
     [data-testid="stMetricLabel"] { color: #444444 !important; font-size: 1.1rem !important; font-weight: 800 !important; }
     [data-testid="stMetricValue"] { color: #d63384 !important; font-size: 2.2rem !important; font-weight: 900 !important; }
-    
-    .indicator-box { 
-        background-color: #ffffff !important; padding: 15px !important; border-radius: 12px !important; 
+
+    .indicator-box {
+        background-color: #ffffff !important; padding: 15px !important; border-radius: 12px !important;
         border: 2px solid #2d3436 !important; height: 140px !important; text-align: center;
         display: flex; flex-direction: column; justify-content: center;
     }
     .indicator-label { color: #444444 !important; font-size: 1.1rem; font-weight: 800; }
     .indicator-value { color: #5d5fef !important; font-size: 1.8rem; font-weight: 900; }
-    
+
     .ai-box { background-color: #f0f7ff; padding: 15px; border-radius: 10px; border-left: 5px solid #2196f3; margin-bottom: 20px; }
     </style>
     """, unsafe_allow_html=True)
@@ -88,7 +88,7 @@ if role == "📝 學生：成績錄入":
     st.markdown('<div class="title-box">📝 學生成績自主錄入</div>', unsafe_allow_html=True)
     df_students = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
     df_courses = conn.read(spreadsheet=url, worksheet="科目設定", ttl=600)
-    
+
     with st.form("input_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
@@ -121,7 +121,7 @@ else:
         pwd = st.text_input("密碼", type="password")
         if st.button("進入系統"):
             if pwd == st.secrets["teacher"]["password"]: st.session_state['authenticated'] = True; st.rerun()
-    
+
     if st.session_state['authenticated']:
         tabs = st.tabs(["📊 成績儀表板", "🤖 AI 智慧診斷"])
         df_raw = st.session_state['df_grades'].copy()
@@ -141,14 +141,14 @@ else:
                 df_stu = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
                 t_s = st.selectbox("👤 學生", df_stu["姓名"].tolist())
                 t_e = st.selectbox("📝 考別", ["第一次段考", "第二次段考", "第三次段考"])
-                
+
                 pool = f_df[f_df["考試類別"] == t_e]
                 p_pool = pool[pool["姓名"] == t_s]
-                
+
                 if not p_pool.empty:
                     rows = []; grades_for_ind = []; sum_pts = 0; total_score = 0; count_sub = 0
                     soc_avg_pool = pool[pool["科目"].isin(SOC_COLS)].pivot_table(index="姓名", values="分數", aggfunc="mean")
-                    
+
                     for sub in SUBJECT_ORDER:
                         match = p_pool[p_pool["科目"] == sub]
                         if not match.empty:
@@ -158,7 +158,7 @@ else:
                             if sub not in SOC_COLS: sum_pts += p; grades_for_ind.append(g)
                             res = {"科目": sub, "分數": s, "等級": g, "點數": p, "班平均": format_num(sub_all.mean())}
                             res.update(get_dist_dict(sub_all)); rows.append(res)
-                        
+
                         # 【恢復】社會科整合邏輯
                         if sub == "公民":
                             soc_data = p_pool[p_pool["科目"].isin(SOC_COLS)]
@@ -204,10 +204,10 @@ else:
                 st.session_state['ai_sync_data'] = {"title": f"{t_s} 平時成績紀錄", "content": p_df.to_string()}
 
         with tabs[1]:
-            st.markdown('<div class="title-box">🤖 AI 智慧診斷</div>', unsafe_allow_html=True)
+            st.header("AI 智慧診斷")
             if st.session_state['ai_sync_data']["title"]:
-                st.markdown(f'<div class="ai-box">📍 分析目標：{st.session_state["ai_sync_data"]["title"]}</div>', unsafe_allow_html=True)
-                if st.button("🚀 根據當前搜尋結果生成分析"):
+                # 已刪除紅框中的白條圖示
+                if st.button("根據當前搜尋結果生成分析"):
                     genai.configure(api_key=st.secrets["gemini"]["api_key"])
                     model = genai.GenerativeModel('gemini-2.0-flash')
                     with st.spinner("分析中..."):

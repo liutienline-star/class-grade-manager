@@ -4,7 +4,6 @@ import google.generativeai as genai
 import pandas as pd
 import numpy as np
 from datetime import datetime, date
-# 備註：若您在 Streamlit Cloud 執行且沒有安裝 matplotlib，請移除 background_gradient 以免報錯
 from collections import Counter
 import os
 
@@ -15,54 +14,74 @@ SUBJECT_ORDER = ["國文", "英文", "數學", "自然", "歷史", "地理", "�
 SOC_COLS = ["歷史", "地理", "公民"]
 DIST_LABELS = ["0-10", "10-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70-80", "80-90", "90-100"]
 
-# 自定義 CSS (優化總標示顯示)
+# --- 自定義 CSS (強化投影辨識度與高對比) ---
 st.markdown("""
     <style>
-    .main { background-color: #fcfcfc; }
-    .block-container { max-width: 1200px; padding-top: 3rem; }
+    .main { background-color: #ffffff; }
+    .block-container { max-width: 1300px; padding-top: 2rem; }
     
-    /* 修正 Metric 樣式 */
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e6e9ef; box-shadow: 0 2px 4px rgba(0,0,0,0.03); }
-    div[data-testid="stMetricValue"] { font-size: 1.8rem !important; color: #1f77b4; }
-    
-    /* 【關鍵修正】總標示專用小字體樣式 */
+    /* 強化投影辨識度的字體與對比 */
+    html, body, [class*="st-"] {
+        font-size: 1.1rem; /* 整體字體微調大 */
+    }
+
+    /* Metric 數據指標強化 */
+    div[data-testid="stMetric"] {
+        background-color: #f8f9fa;
+        padding: 20px;
+        border-radius: 12px;
+        border: 2px solid #333333; /* 強化邊框對比 */
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+    }
+    div[data-testid="stMetricLabel"] {
+        font-size: 1.2rem !important;
+        color: #000000 !important;
+        font-weight: bold !important;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 2.8rem !important; /* 顯著加大數值 */
+        color: #d63384 !important; /* 高對比桃紅色 */
+        font-weight: 800 !important;
+    }
+
+    /* 總標示專用樣式 */
     .indicator-label {
-        font-size: 0.8rem;
-        color: #555;
-        margin-bottom: 2px;
+        font-size: 1.1rem;
+        color: #000;
+        font-weight: bold;
+        margin-bottom: 5px;
     }
     .indicator-box { 
-        background-color: #ffffff; 
-        padding: 10px 15px; 
-        border-radius: 10px; 
-        border: 1px solid #e6e9ef; 
-        min-height: 85px; /* 保持與 Metric 同高 */
+        background-color: #f8f9fa; 
+        padding: 15px; 
+        border-radius: 12px; 
+        border: 2px solid #333333;
+        min-height: 100px;
         display: flex;
         flex-direction: column;
         justify-content: center;
+        text-align: center;
     }
     .indicator-value {
-        font-size: 1.2rem !important; /* 縮小字體以免被切斷 */
-        color: #1f77b4;
-        font-weight: bold;
-        line-height: 1.2;
-        word-break: break-all; /* 強制換行防止溢出 */
+        font-size: 1.8rem !important;
+        color: #0d6efd !important;
+        font-weight: 900;
+        line-height: 1.1;
+        word-break: break-all;
     }
-    
+
+    /* 表格字體加大 */
+    .stDataFrame td, .stDataFrame th {
+        font-size: 1.2rem !important;
+    }
+
     .report-card { 
         background: #ffffff; 
-        padding: 20px; 
-        border: 1px solid #2c3e50; 
-        border-radius: 12px; 
+        padding: 25px; 
+        border: 2px solid #000000; 
+        border-radius: 15px; 
         margin-bottom: 20px;
-    }
-    
-    .auth-box {
-        background: white;
-        padding: 30px;
-        border-radius: 15px;
-        border: 1px solid #ddd;
-        margin-top: 50px;
+        font-size: 1.2rem;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -78,8 +97,12 @@ def get_grade_info(score):
     return "C", 1
 
 def format_avg(val):
-    try: return f"{round(float(val), 2):g}"
-    except: return "0"
+    """修正：取到小數點下兩位，並移除多餘的0"""
+    try:
+        f_val = float(val)
+        return f"{f_val:.2f}".rstrip('0').rstrip('.')
+    except:
+        return "0"
 
 def get_dist_dict(series):
     bins = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 101]
@@ -151,7 +174,6 @@ else:
     if st.session_state['authenticated']:
         tabs = st.tabs(["📊 數據中心", "🤖 AI 診斷分析", "📥 報表輸出中心"])
         df_raw = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
-        # 強制轉換分數為數字以利統計計算
         df_raw["分數"] = pd.to_numeric(df_raw["分數"], errors='coerce')
         df_stu = conn.read(spreadsheet=url, worksheet="學生名單", ttl=0)
         df_raw['日期'] = pd.to_datetime(df_raw['時間戳記']).dt.date
@@ -172,7 +194,6 @@ else:
                 p_pool = pool[pool["姓名"] == t_s].copy()
                 
                 if not p_pool.empty:
-                    sid = to_int_val(df_stu[df_stu["姓名"] == t_s]["學號"].values[0])
                     rows = []; grades_for_ind = []; sum_pts = 0; total_score = 0; count_sub = 0
                     soc_avg_pool = pool[pool["科目"].isin(SOC_COLS)].pivot_table(index="姓名", values="分數", aggfunc="mean")
 
@@ -200,7 +221,6 @@ else:
                                 sr.update(get_dist_dict(soc_avg_pool["分數"]))
                                 rows.append(sr)
 
-                    # 排名邏輯：基於該考試類別下所有學生的 7 科總分
                     rank_df = pool[pool["科目"].isin(SUBJECT_ORDER)].pivot_table(index="姓名", values="分數", aggfunc="sum")
                     rank_df["排名"] = rank_df["分數"].rank(ascending=False, method='min').astype(int)
                     curr_rank = rank_df.loc[t_s, "排名"]
@@ -208,7 +228,6 @@ else:
 
                     m1, m2, m3, m4, m5 = st.columns(5)
                     m1.metric("總分", total_score)
-                    # 修正：改為七科平均 (以 SUBJECT_ORDER 中實際有成績的科目數計算)
                     m2.metric("七科平均", format_avg(total_score/count_sub) if count_sub > 0 else "0")
                     m3.metric("總積點", sum_pts)
                     
@@ -232,10 +251,10 @@ else:
                 tdf = f_df[f_df["考試類別"] == stype].copy()
                 if not tdf.empty:
                     piv = tdf.pivot_table(index="姓名", columns="科目", values="分數", aggfunc="mean").round(0).astype(int)
-                    # 修正：總平均計算範圍確保涵蓋 SUBJECT_ORDER (七科)
                     piv["總平均"] = tdf.pivot_table(index="姓名", columns="科目", values="分數", aggfunc="mean")[SUBJECT_ORDER].mean(axis=1)
                     piv["排名"] = piv["總平均"].rank(ascending=False, method='min').astype(int)
                     piv = piv.sort_values("排名")
+                    # 套用自定義格式化：小數兩位且高辨識
                     st.dataframe(piv.style.format(format_avg, subset=["總平均"]), use_container_width=True)
                     st.session_state['c_rpt'] = {"title": f"班級總表-{stype}", "meta": f"統計日期:{date.today()}", "df": piv.reset_index()}
 
@@ -244,11 +263,10 @@ else:
                 d_df = f_df[(f_df["姓名"] == st_name) & (f_df["考試類別"] == "平時考")].copy()
                 d_df = d_df[["時間戳記", "科目", "考試範圍", "分數"]].sort_values("時間戳記", ascending=False)
                 st.dataframe(d_df, hide_index=True, use_container_width=True)
-                st.session_state['d_rpt'] = {"title": f"{st_name}-平時成績紀錄", "meta": f"日期: {date.today()}", "df": d_df}
 
-        # --- AI 診斷分析區 ---
+        # --- AI 診斷分析區 (修正小數顯示) ---
         with tabs[1]:
-            st.subheader("🤖 AI 智慧診斷 (含統計意義分析)")
+            st.subheader("🤖 AI 智慧診斷")
             ai_name = st.selectbox("選擇分析對象", df_stu["姓名"].tolist(), key="ai_sel")
             ai_type = st.radio("診斷範圍", ["最近一次段考", "近期平時考表現"], horizontal=True)
             
@@ -264,35 +282,19 @@ else:
                         c_mean = class_data[class_data['科目'] == sub]['分數'].mean()
                         c_std = class_data[class_data['科目'] == sub]['分數'].std()
                         
+                        # 修正：AI 資料摘要使用小數點下兩位
                         stats_report.append(
-                            f"- {sub}: 個人得分={s_score}, 班級平均={c_mean:.1f}, 標準差={c_std:.1f}"
+                            f"- {sub}: 個人得分={s_score}, 班級平均={c_mean:.2f}, 標準差={c_std:.2f}"
                         )
                     
                     data_summary = "\n".join(stats_report)
+                    prompt = f"你是班導師，請針對學生「{ai_name}」在「{filter_cat}」的表現進行深度診斷：\n\n【數據資料】\n{data_summary}\n\n【分析任務】\n1. 結合「班級平均」與「標準差(取兩位)」說明表現。\n2. 給予專業建議。\n\n請用 Markdown 格式，大字體標題輸出。"
                     
-                    prompt = f"""
-                    你是班導師，請針對學生「{ai_name}」在「{filter_cat}」的表現進行深度診斷：
-                    
-                    【數據資料】
-                    {data_summary}
-                    
-                    【分析任務】
-                    1. 結合「班級平均」說明該生各科的相對優劣勢。
-                    2. 解釋「標準差」的統計意義：
-                       - 若標準差小且學生分數高於平均，代表該生在競爭最激烈的核心群。
-                       - 若標準差大，代表學生程度落差大，說明該生在該科目的領先或落後程度。
-                    3. 給予專業、溫暖且具體的後續學習建議。
-                    
-                    請用 Markdown 格式輸出，語氣要像是與家長或學生面談。
-                    """
-                    
-                    with st.spinner("AI 正在分析統計數據並撰寫建議..."):
+                    with st.spinner("AI 正在分析..."):
                         res = model.generate_content(prompt)
                         st.markdown('<div class="report-card">', unsafe_allow_html=True)
                         st.markdown(res.text)
                         st.markdown('</div>', unsafe_allow_html=True)
-                else:
-                    st.warning(f"找不到 {ai_name} 在 {filter_cat} 的相關成績數據。")
 
         with tabs[2]:
             st.subheader("📥 報表輸出中心")
@@ -301,5 +303,4 @@ else:
             if data_key in st.session_state:
                 rpt = st.session_state[data_key]
                 st.header(rpt['title'])
-                st.caption(rpt['meta'])
                 st.table(rpt['df'])

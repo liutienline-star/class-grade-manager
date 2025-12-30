@@ -4,59 +4,100 @@ import google.generativeai as genai
 import pandas as pd
 import numpy as np
 from datetime import datetime, date
-import pytz # 處理台灣時區
 from collections import Counter
 import time
 
-# --- 1. 系統初始化 (1600px 寬屏) ---
+# --- 1. 系統初始化配置 (完全還原 1600px 寬屏) ---
 st.set_page_config(page_title="809班成績管理系統", layout="wide", page_icon="🏫")
-
-# 設定台灣時區
-TW_TZ = pytz.timezone('Asia/Taipei')
 
 SUBJECT_ORDER = ["國文", "英文", "數學", "自然", "歷史", "地理", "公民"]
 SOC_COLS = ["歷史", "地理", "公民"]
 DIST_LABELS = ["0-10", "10-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70-80", "80-90", "90-100"]
 
-# --- 2. 完整視覺 CSS (新暴力主義：粗黑邊框、立體陰影) ---
+# --- 2. 完整 CSS 樣式表 (圖框、陰影、圖示配色完全還原) ---
 st.markdown("""
     <style>
     .main { background-color: #fcfcfc; }
-    .block-container { max-width: 1600px; padding-top: 1.5rem; }
-    html, body, [class*="st-"] { font-size: 1.15rem; font-family: "Microsoft JhengHei", sans-serif; }
+    .block-container { max-width: 1600px; padding-top: 2rem; padding-bottom: 2rem; }
     
-    /* 容器樣式 */
-    .filter-container { 
-        background-color: #f1f3f6; padding: 25px; border-radius: 15px; 
-        border: 2px solid #2d3436; margin-bottom: 25px; box-shadow: 4px 4px 0px rgba(0,0,0,0.05); 
+    /* 字體與全局設定 */
+    html, body, [class*="st-"] { 
+        font-size: 1.15rem; 
+        font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; 
     }
 
-    /* 指標卡 (Metric) */
-    div[data-testid="stMetric"] { 
-        background-color: #ffffff; padding: 20px; border-radius: 12px; 
-        border: 2px solid #2d3436; box-shadow: 5px 5px 0px rgba(0,0,0,0.1); 
+    /* 篩選器圖框 */
+    .filter-container { 
+        background-color: #f1f3f6; 
+        padding: 25px; 
+        border-radius: 15px; 
+        border: 1px solid #d1d5db; 
+        margin-bottom: 25px; 
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.03);
     }
-    div[data-testid="stMetricLabel"] { font-size: 1.25rem !important; font-weight: 800 !important; color: #444; }
-    div[data-testid="stMetricValue"] { font-size: 2.8rem !important; font-weight: 900 !important; color: #d63384 !important; }
+
+    /* 成績指標方框 (Metric) - 粗邊框風格 */
+    div[data-testid="stMetric"] { 
+        background-color: #ffffff; 
+        padding: 20px 25px; 
+        border-radius: 12px; 
+        border: 2px solid #2d3436; 
+        box-shadow: 4px 4px 0px rgba(0,0,0,0.1); 
+        min-height: 130px;
+    }
+    div[data-testid="stMetricLabel"] { 
+        font-size: 1.3rem !important; 
+        color: #444444 !important; 
+        font-weight: 800 !important; 
+        margin-bottom: 8px;
+    }
+    div[data-testid="stMetricValue"] { 
+        font-size: 2.8rem !important; 
+        color: #d63384 !important; 
+        font-weight: 900 !important; 
+    }
 
     /* 總標示專用方框 */
     .indicator-box { 
-        background-color: #ffffff; padding: 15px; border-radius: 12px; 
-        border: 2px solid #2d3436; text-align: center; box-shadow: 5px 5px 0px rgba(0,0,0,0.1);
-        min-height: 115px; display: flex; flex-direction: column; justify-content: center;
+        background-color: #ffffff; 
+        padding: 20px; 
+        border-radius: 12px; 
+        border: 2px solid #2d3436; 
+        min-height: 130px; 
+        display: flex; 
+        flex-direction: column; 
+        justify-content: center; 
+        text-align: center; 
+        box-shadow: 4px 4px 0px rgba(0,0,0,0.1); 
     }
-    .indicator-label { font-size: 1.25rem; font-weight: 800; color: #444; margin-bottom: 3px; }
-    .indicator-value { font-size: 1.7rem; font-weight: 900; color: #0d6efd; }
+    .indicator-label { font-size: 1.3rem; color: #444444; font-weight: 800; margin-bottom: 5px; }
+    .indicator-value { font-size: 1.6rem !important; color: #0d6efd !important; font-weight: 900; line-height: 1.2; }
 
-    /* AI 報告卡片 */
+    /* AI 診斷報告卡片 */
     .report-card { 
-        background: #ffffff; padding: 35px; border: 2px solid #2d3436; 
-        border-radius: 18px; line-height: 1.9; box-shadow: 8px 8px 0px rgba(0,0,0,0.05); 
+        background: #ffffff; 
+        padding: 35px; 
+        border: 2px solid #2d3436; 
+        border-radius: 18px; 
+        margin-top: 25px; 
+        line-height: 1.9; 
+        box-shadow: 6px 6px 0px rgba(0,0,0,0.05);
+    }
+    
+    /* 登入框置中 */
+    .login-box {
+        max-width: 450px;
+        margin: 120px auto;
+        padding: 40px;
+        background: white;
+        border: 2px solid #2d3436;
+        border-radius: 20px;
+        box-shadow: 8px 8px 0px rgba(0,0,0,0.1);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. 核心底層數據邏輯 ---
+# --- 3. 核心邏輯 (計算、整合、排名完全還原) ---
 def get_grade_info(score):
     if score >= 95: return "A++", 7
     if score >= 91: return "A+", 6
@@ -66,40 +107,52 @@ def get_grade_info(score):
     if score >= 41: return "B", 2
     return "C", 1
 
-def format_num(val):
+def format_avg(val):
     try:
-        f = float(val)
-        return str(int(f)) if f == int(f) else f"{round(f, 2):g}"
+        f_val = float(val)
+        if f_val == int(f_val): return str(int(f_val))
+        return f"{round(f_val, 2):g}"
     except: return "0"
 
+def get_dist_dict(series):
+    bins = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 101]
+    counts = pd.cut(series, bins=bins, labels=DIST_LABELS, right=False).value_counts().sort_index()
+    return counts.to_dict()
+
+def to_int_val(val):
+    try:
+        if pd.isna(val): return 0
+        return int(round(float(val), 0))
+    except: return 0
+
 def calculate_overall_indicator(grades):
+    if not grades: return ""
     order = ["A++", "A+", "A", "B++", "B+", "B", "C"]
     counts = Counter(grades)
     return "".join([f"{counts[g]}{g}" for g in order if counts[g] > 0])
 
-def get_dist_dict(series):
-    bins = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 101]
-    return pd.cut(series, bins=bins, labels=DIST_LABELS, right=False).value_counts().sort_index().to_dict()
+# --- 4. 初始化連線 ---
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+    genai.configure(api_key=st.secrets["gemini"]["api_key"])
+    model = genai.GenerativeModel('gemini-2.0-flash')
+except:
+    st.error("❌ 系統初始化連線失敗，請檢查 Secrets 設定。"); st.stop()
 
-# --- 4. 初始化數據連線 (即時更新核心) ---
-conn = st.connection("gsheets", type=GSheetsConnection)
-url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
 
-if 'df_grades' not in st.session_state:
-    st.session_state['df_grades'] = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
-if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
-if 'current_rpt_df' not in st.session_state: st.session_state['current_rpt_df'] = None
-if 'current_rpt_name' not in st.session_state: st.session_state['current_rpt_name'] = ""
-
-# --- 5. 功能切換 ---
+# --- 5. 側邊欄導覽 (恢復圖示與標題) ---
 st.sidebar.markdown("## 🏫 809 班級管理")
 role = st.sidebar.radio("功能切換：", ["📝 學生：成績錄入", "📊 老師：統計報表"])
 
-# --- 6. 學生錄入介面 (即時更新 + 時間校正) ---
+# --- 6. 學生錄入介面 (還原圖示與撤回區塊) ---
 if role == "📝 學生：成績錄入":
     st.title("📝 學生成績自主錄入")
     df_students = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
     df_courses = conn.read(spreadsheet=url, worksheet="科目設定", ttl=600)
+    df_grades_db = conn.read(spreadsheet=url, worksheet="成績資料", ttl=5)
     
     with st.form("input_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
@@ -110,147 +163,155 @@ if role == "📝 學生：成績錄入":
             score = st.number_input("💯 考試得分", 0, 150, step=1)
             etype = st.selectbox("📅 考試類別", ["平時考", "第一次段考", "第二次段考", "第三次段考"])
         exam_range = st.text_input("📍 考試範圍 (選填)")
-        
-        if st.form_submit_button("🚀 ✅ 提交成績"):
-            sid = int(df_students[df_students["姓名"] == name]["學號"].values[0])
-            now_tw = datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M:%S")
-            new_data = {
-                "時間戳記": now_tw, "學號": sid, "姓名": name, "科目": subject, 
-                "分數": int(score), "考試類別": etype, "考試範圍": exam_range
-            }
-            # 同步更新本地 Session，實現 0 延遲更新
-            st.session_state['df_grades'] = pd.concat([st.session_state['df_grades'], pd.DataFrame([new_data])], ignore_index=True)
-            conn.update(spreadsheet=url, worksheet="成績資料", data=st.session_state['df_grades'])
-            st.success(f"🎊 錄入成功！時間：{now_tw}"); time.sleep(0.5); st.rerun()
+        if st.form_submit_button("🚀 ✅ 提交成績至雲端"):
+            sid = to_int_val(df_students[df_students["姓名"] == name]["學號"].values[0])
+            new_row = pd.DataFrame([{
+                "時間戳記": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "學號": sid, "姓名": name, "科目": subject, "分數": int(score),
+                "考試類別": etype, "考試範圍": exam_range
+            }])
+            conn.update(spreadsheet=url, worksheet="成績資料", data=pd.concat([df_grades_db, new_row], ignore_index=True))
+            st.cache_data.clear(); st.success(f"🎊 錄入成功！{name} 的 {subject} 分數已存檔。"); time.sleep(1); st.rerun()
 
     st.markdown("---")
-    st.subheader("🔍 最近 5 筆錄入動態")
-    my_records = st.session_state['df_grades'][st.session_state['df_grades']["姓名"] == name].copy()
+    st.subheader("🔍 最近 5 筆錄入動態 (可撤回)")
+    my_records = df_grades_db[df_grades_db["姓名"] == name].copy()
     if not my_records.empty:
         my_records["時間戳記"] = pd.to_datetime(my_records["時間戳記"], errors='coerce')
-        display_df = my_records.dropna(subset=["時間戳記"]).sort_values("時間戳記", ascending=False).head(5)
-        st.dataframe(display_df[["時間戳記", "科目", "考試類別", "分數", "考試範圍"]], hide_index=True, use_container_width=True)
-        
-        if st.button("🗑️ 撤回最後一筆錄入"):
-            idx = st.session_state['df_grades'][st.session_state['df_grades']["姓名"] == name].index
-            if not idx.empty:
-                st.session_state['df_grades'] = st.session_state['df_grades'].drop(idx[-1]).reset_index(drop=True)
-                conn.update(spreadsheet=url, worksheet="成績資料", data=st.session_state['df_grades'])
-                st.warning("資料已成功撤回！"); time.sleep(0.5); st.rerun()
+        my_records = my_records.dropna(subset=["時間戳記"]).sort_values("時間戳記", ascending=False).head(5)
+        st.dataframe(my_records[["時間戳記", "科目", "考試類別", "分數", "考試範圍"]].style.format({"分數": format_avg}), hide_index=True, use_container_width=True)
+        if st.button("🗑️ 撤回最後一筆錄入資料"):
+            fresh_df = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
+            target_idx = fresh_df[fresh_df["姓名"] == name].index
+            if len(target_idx) > 0:
+                conn.update(spreadsheet=url, worksheet="成績資料", data=fresh_df.drop(target_idx[-1]))
+                st.cache_data.clear(); st.warning("已成功刪除最後一筆紀錄。"); time.sleep(1); st.rerun()
 
-# --- 7. 老師統計報表 (復原所有參數與 AI 標準差) ---
+# --- 7. 老師專區 (還原完整複雜圖框與邏輯) ---
 else:
     if not st.session_state['authenticated']:
-        st.markdown('<div class="filter-container" style="max-width:400px; margin: 100px auto;">', unsafe_allow_html=True)
-        pwd = st.text_input("🔑 管理員密碼", type="password")
-        if st.button("🔓 登入", use_container_width=True):
-            if pwd == st.secrets["teacher"]["password"]: st.session_state['authenticated'] = True; st.rerun()
+        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        st.markdown("### 🔑 管理員身分驗證")
+        pwd = st.text_input("請輸入導師管理密碼", type="password")
+        if st.button("🔓 登入系統", use_container_width=True):
+            if pwd == st.secrets["teacher"]["password"]: 
+                st.session_state['authenticated'] = True; st.rerun()
+            else: st.error("密碼錯誤")
         st.markdown('</div>', unsafe_allow_html=True)
     
     if st.session_state['authenticated']:
-        tabs = st.tabs(["📊 數據查詢中心", "🤖 AI 智慧診斷", "📥 報表輸出中心"])
-        df_raw = st.session_state['df_grades'].copy()
+        tabs = st.tabs(["📊 數據查詢與中心", "🤖 AI 智慧診斷", "📥 報表輸出中心"])
+        df_raw = conn.read(spreadsheet=url, worksheet="成績資料", ttl=5)
         df_raw["分數"] = pd.to_numeric(df_raw["分數"], errors='coerce')
+        df_stu = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
         df_raw['日期'] = pd.to_datetime(df_raw['時間戳記'], errors='coerce').dt.date
 
-        with tabs[0]: # 數據查詢 (社會整合邏輯)
+        with tabs[0]: # 數據查詢
             st.markdown('<div class="filter-container">', unsafe_allow_html=True)
             c_d1, c_d2, c_d3 = st.columns([1, 1, 2])
             with c_d1: start_d = st.date_input("📅 開始日期", date(2025, 1, 1))
-            with c_d2: end_d = st.date_input("📅 結束日期", datetime.now(TW_TZ).date())
-            with c_d3: mode = st.radio("🔍 模式", ["個人段考成績單", "班級段考總表", "個人平時成績歷次"], horizontal=True)
+            with c_d2: end_d = st.date_input("📅 結束日期", date.today())
+            with c_d3: mode = st.radio("🔍 檢視模式", ["個人段考成績單", "班級段考總表", "個人平時成績歷次"], horizontal=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-            f_df = df_raw[(df_raw['日期'] >= start_d) & (df_raw['日期'] <= end_d)]
+            f_df = df_raw[(df_raw['日期'] >= start_d) & (df_raw['日期'] <= end_d)].copy()
 
             if mode == "個人段考成績單":
-                df_stu = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
-                t_s = st.selectbox("👤 選擇學生", df_stu["姓名"].tolist())
-                t_e = st.selectbox("📝 選擇考試", ["第一次段考", "第二次段考", "第三次段考"])
+                c1, c2 = st.columns(2)
+                with c1: t_s = st.selectbox("👤 選擇學生", df_stu["姓名"].tolist())
+                with c2: t_e = st.selectbox("📝 選擇考試", ["第一次段考", "第二次段考", "第三次段考"])
                 
-                pool = f_df[f_df["考試類別"] == t_e]
-                p_pool = pool[pool["姓名"] == t_s]
+                pool = f_df[f_df["考試類別"] == t_e].copy()
+                p_pool = pool[pool["姓名"] == t_s].copy()
                 
                 if not p_pool.empty:
                     rows = []; grades_for_ind = []; sum_pts = 0; total_score = 0; count_sub = 0
                     soc_avg_pool = pool[pool["科目"].isin(SOC_COLS)].pivot_table(index="姓名", values="分數", aggfunc="mean")
-                    
+
                     for sub in SUBJECT_ORDER:
                         match = p_pool[p_pool["科目"] == sub]
                         if not match.empty:
-                            s = int(round(match["分數"].mean(), 0))
+                            s = to_int_val(match["分數"].values[0])
                             total_score += s; count_sub += 1
                             sub_all = pool[pool["科目"] == sub]["分數"]
                             g, p = ("", "") if sub in SOC_COLS else get_grade_info(s)
                             if sub not in SOC_COLS: sum_pts += p; grades_for_ind.append(g)
-                            res = {"科目": sub, "分數": s, "等級": g, "點數": p, "班平均": format_num(sub_all.mean())}
+                            res = {"科目": sub, "分數": s, "等級": g, "點數": p, "班平均": format_avg(sub_all.mean())}
                             res.update(get_dist_dict(sub_all)); rows.append(res)
                         
-                        # 復原：社會科整合
                         if sub == "公民":
                             soc_data = p_pool[p_pool["科目"].isin(SOC_COLS)]
                             if not soc_data.empty:
                                 sa = soc_data["分數"].mean(); sg, sp = get_grade_info(sa)
                                 sum_pts += sp; grades_for_ind.append(sg)
-                                sr = {"科目": "★社會(整合)", "分數": int(round(sa,0)), "等級": sg, "點數": sp, "班平均": format_num(soc_avg_pool["分數"].mean())}
+                                sr = {"科目": "★社會(整合)", "分數": to_int_val(sa), "等級": sg, "點數": sp, "班平均": format_avg(soc_avg_pool["分數"].mean())}
                                 sr.update(get_dist_dict(soc_avg_pool["分數"])); rows.append(sr)
 
+                    # 排名計算邏輯還原
                     rank_df = pool[pool["科目"].isin(SUBJECT_ORDER)].pivot_table(index="姓名", values="分數", aggfunc="sum")
                     rank_df["排名"] = rank_df["分數"].rank(ascending=False, method='min').astype(int)
-                    curr_rank = rank_df.loc[t_s, "排名"] if t_s in rank_df.index else "N/A"
+                    curr_rank = rank_df.loc[t_s, "排名"] if t_s in rank_df.index else "N"
 
-                    # 復原精美指標
+                    # 恢復五大指標方塊佈局
                     m1, m2, m3, m4, m5 = st.columns(5)
                     m1.metric("📊 總分", total_score)
-                    m2.metric("📈 平均", format_num(total_score/count_sub))
-                    m3.metric("💎 積點", sum_pts)
+                    m2.metric("📈 七科平均", format_avg(total_score/count_sub) if count_sub > 0 else "0")
+                    m3.metric("💎 總積點", sum_pts)
                     with m4: st.markdown(f'<div class="indicator-box"><div class="indicator-label">🏆 總標示</div><div class="indicator-value">{calculate_overall_indicator(grades_for_ind)}</div></div>', unsafe_allow_html=True)
-                    m5.metric("🎖️ 排名", f"第 {curr_rank} 名")
+                    m5.metric("🎖️ 班排名", f"第 {curr_rank} 名")
                     
                     final_df = pd.DataFrame(rows)
                     st.dataframe(final_df, hide_index=True, use_container_width=True)
-                    st.session_state['current_rpt_df'] = final_df
-                    st.session_state['current_rpt_name'] = f"{t_s}_{t_e}"
+                    st.session_state['p_rpt'] = {"title": f"{t_s} {t_e} 成績單", "df": final_df}
+                else: st.warning("⚠ 該生在此考試期間無資料。")
 
             elif mode == "班級段考總表":
-                stype = st.selectbox("📊 考別選擇", ["第一次段考", "第二次段考", "第三次段考"])
-                tdf = f_df[f_df["考試類別"] == stype]
+                stype = st.selectbox("📊 選擇統計考別", ["第一次段考", "第二次段考", "第三次段考"])
+                tdf = f_df[f_df["考試類別"] == stype].copy()
                 if not tdf.empty:
-                    piv = tdf.pivot_table(index="姓名", columns="科目", values="分數", aggfunc="mean").round(0)
+                    piv = tdf.pivot_table(index="姓名", columns="科目", values="分數", aggfunc="mean").round(0).astype(int)
                     piv["總平均"] = piv[[s for s in SUBJECT_ORDER if s in piv.columns]].mean(axis=1)
                     piv["排名"] = piv["總平均"].rank(ascending=False, method='min').astype(int)
                     piv = piv.sort_values("排名")
-                    st.dataframe(piv, use_container_width=True)
-                    st.session_state['current_rpt_df'] = piv.reset_index()
-                    st.session_state['current_rpt_name'] = f"班級總表_{stype}"
+                    st.dataframe(piv.style.format(format_avg, subset=["總平均"]), use_container_width=True)
+                    st.session_state['c_rpt'] = {"title": f"{stype} 班級總表", "df": piv.reset_index()}
 
-        with tabs[1]: # AI 智慧診斷 (復原標準差與分析數據切換)
-            st.subheader("🤖 AI 學生表現智慧分析")
-            ai_name = st.selectbox("分析對象", df_raw["姓名"].unique(), key="ai_sel")
-            ai_type = st.radio("分析數據源", ["最近一次段考", "近期平時考表現"], horizontal=True)
-            if st.button("🚀 開始深度分析"):
-                genai.configure(api_key=st.secrets["gemini"]["api_key"])
-                model = genai.GenerativeModel('gemini-2.0-flash')
-                filter_cat = "平時考" if "平時" in ai_type else "第一次段考"
-                target_data = f_df[f_df["考試類別"] == filter_cat]
-                student_data = target_data[target_data["姓名"] == ai_name]
-                if not student_data.empty:
+            elif mode == "個人平時成績歷次":
+                st_name = st.selectbox("👤 查詢學生", df_stu["姓名"].tolist())
+                d_df = f_df[(f_df["姓名"] == st_name) & (f_df["考試類別"] == "平時考")].copy()
+                d_df = d_df[["時間戳記", "科目", "考試範圍", "分數"]].sort_values("時間戳記", ascending=False)
+                st.dataframe(d_df.style.format({"分數": format_avg}), hide_index=True, use_container_width=True)
+                st.session_state['d_rpt'] = {"title": f"{st_name} 平時成績紀錄", "df": d_df}
+
+        with tabs[1]: # --- AI 智慧診斷 (還原數據切換與圖框) ---
+            st.subheader("🤖 AI 學生表現智慧診斷")
+            ai_name = st.selectbox("👤 分析對象", df_stu["姓名"].tolist(), key="ai_sel")
+            ai_type = st.radio("💡 分析數據源", ["最近一次段考", "近期平時考表現"], horizontal=True)
+            
+            if st.button("🚀 生成 AI 深度分析報告"):
+                filter_cat = "平時考" if "平時" in ai_type else "第一次段考" # 依此類推
+                class_data = f_df[f_df["考試類別"] == filter_cat]
+                target = class_data[class_data["姓名"] == ai_name]
+                
+                if not target.empty:
                     stats = []
-                    for s in student_data['科目'].unique():
-                        s_avg = student_data[student_data['科目']==s]['分數'].mean()
-                        c_avg = target_data[target_data['科目']==s]['分數'].mean()
-                        c_std = target_data[target_data['科目']==s]['分數'].std() # 💡 復原標準差
-                        stats.append(f"- {s}: 個人={format_num(s_avg)}, 班均={format_num(c_avg)}, 標準差(σ)={format_num(c_std)}")
-                    with st.spinner("AI 正在思考..."):
-                        res = model.generate_content(f"你是班導師，請分析該生表現：\n{stats}")
+                    for sub in target['科目'].unique():
+                        s_score = target[target['科目'] == sub]['分數'].mean()
+                        sub_all = class_data[class_data['科目'] == sub]['分數']
+                        stats.append(f"- {sub}: 個人平均={format_avg(s_score)}, 班平均={format_avg(sub_all.mean())}, 標準差={format_avg(sub_all.std())}")
+                    
+                    prompt = f"你是台灣的中學班導師，請針對「{ai_name}」的「{ai_type}」表現：\n{stats}\n分析學生成績穩定性與優劣勢，提供具體建議。Markdown 格式。"
+                    with st.spinner("AI 正在解析數據並撰寫報告..."):
+                        res = model.generate_content(prompt)
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
+                else: st.warning("💡 無足夠數據可供分析，請確認日期範圍與考試類別。")
 
-        with tabs[2]: # 報表輸出中心 (復原下載功能)
+        with tabs[2]: # 報表輸出中心 (還原圖示與 Table 顯示)
             st.subheader("📥 報表輸出中心")
-            if st.session_state['current_rpt_df'] is not None:
-                st.markdown(f"**📄 目前預覽報表：{st.session_state['current_rpt_name']}**")
-                st.dataframe(st.session_state['current_rpt_df'], use_container_width=True)
-                csv = st.session_state['current_rpt_df'].to_csv(index=False).encode('utf-8-sig')
-                st.download_button("📥 下載此報表 (CSV)", csv, f"{st.session_state['current_rpt_name']}.csv", "text/csv", use_container_width=True)
-            else:
-                st.info("💡 請先至「數據查詢中心」檢索資料，報表將自動同步至此。")
+            rpt_choice = st.radio("選擇要輸出的報表", ["個人段考成績單", "班級段考總表", "個人平時成績紀錄表"], horizontal=True)
+            k_map = {"個人段考成績單": 'p_rpt', "班級段考總表": 'c_rpt', "個人平時成績紀錄表": 'd_rpt'}
+            if k_map[rpt_choice] in st.session_state:
+                data = st.session_state[k_map[rpt_choice]]
+                st.markdown(f"### 📄 {data['title']}")
+                st.table(data['df'].astype(str))
+            else: st.info("💡 請先至「數據查詢與中心」完成資料檢索。")

@@ -1,5 +1,6 @@
 streamlit
-st-gsheets-connection
-pandas
+streamlit-gsheets
 google-generativeai
+pandas
+numpy
 fpdf2

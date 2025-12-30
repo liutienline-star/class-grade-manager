@@ -206,7 +206,7 @@ else:
         with tabs[1]:
             st.markdown('<div class="title-box">🤖 AI 智慧診斷</div>', unsafe_allow_html=True)
             if st.session_state['ai_sync_data']["title"]:
-                st.markdown(f'<div class="ai-box">📍 分析目標：{st.session_state["ai_sync_data"]["title"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="ai-box">📍學生各項成績分析 分析目標：{st.session_state["ai_sync_data"]["title"]}</div>', unsafe_allow_html=True)
                 if st.button("🚀 根據當前搜尋結果生成分析"):
                     genai.configure(api_key=st.secrets["gemini"]["api_key"])
                     model = genai.GenerativeModel('gemini-2.0-flash')

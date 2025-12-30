@@ -19,13 +19,18 @@ except Exception as e:
     st.error(f"連線配置錯誤：{e}")
     st.stop()
 
-# --- 2. 狀態管理 ---
+# --- 2. 狀態管理 (確保跨頁面數據傳遞) ---
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
 if 'last_report' not in st.session_state:
     st.session_state['last_report'] = ""
 if 'last_target' not in st.session_state:
     st.session_state['last_target'] = ""
+# 用於存儲報表數據
+if 'df_rank' not in st.session_state: st.session_state['df_rank'] = None
+if 'df_total' not in st.session_state: st.session_state['df_total'] = None
+if 'info_rank' not in st.session_state: st.session_state['info_rank'] = ""
+if 'info_total' not in st.session_state: st.session_state['info_total'] = ""
 
 # --- 3. 側邊欄導覽 ---
 st.sidebar.title("系統功能選單")
@@ -58,7 +63,7 @@ if role == "學生專區 (成績錄入)":
             conn.update(spreadsheet=url, worksheet="成績資料", data=pd.concat([df_grades, new_row], ignore_index=True))
             st.success(f"✅ 已存入 {name} 的成績。")
 
-# --- 5. 老師專區：統計分析與管理 ---
+# --- 5. 老師專區 ---
 else:
     if not st.session_state['authenticated']:
         st.header("🔑 管理員驗證")
@@ -67,15 +72,13 @@ else:
             if pwd == st.secrets["teacher"]["password"]:
                 st.session_state['authenticated'] = True
                 st.rerun()
-            else:
-                st.error("密碼錯誤")
+            else: st.error("密碼錯誤")
     
     if st.session_state['authenticated']:
         if st.sidebar.button("登出管理模式"):
             st.session_state['authenticated'] = False
             st.rerun()
 
-        # 新增分頁：數據統計中心
         tabs = st.tabs(["🤖 AI 統計分析", "📊 數據統計中心", "📋 數據監控", "📄 報告下載"])
 
         # A. AI 分析
@@ -112,38 +115,41 @@ else:
                     st.markdown(response.text)
             else: st.warning("尚無符合條件的數據。")
 
-        # B. 數據統計中心 (新增需求)
+        # B. 數據統計中心
         with tabs[1]:
             st.subheader("📈 班級成績統計與排序")
             df_grades = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
-            
             stat_mode = st.radio("統計模式：", ["單科成績排行", "全班段考成績單"])
             
             if stat_mode == "單科成績排行":
-                col_sub, col_rng = st.columns(2)
-                with col_sub: s_sub = st.selectbox("選擇科目", df_grades["科目"].unique().tolist(), key="stat_sub")
-                with col_rng: s_rng = st.selectbox("選擇考試範圍", df_grades[df_grades["科目"] == s_sub]["考試範圍"].unique().tolist(), key="stat_rng")
+                c_s, c_r = st.columns(2)
+                with c_s: s_sub = st.selectbox("選擇科目", df_grades["科目"].unique().tolist(), key="s_sub")
+                with c_r: s_rng = st.selectbox("選擇考試範圍", df_grades[df_grades["科目"] == s_sub]["考試範圍"].unique().tolist(), key="s_rng")
                 
                 report_df = df_grades[(df_grades["科目"] == s_sub) & (df_grades["考試範圍"] == s_rng)].copy()
                 if not report_df.empty:
                     c_mean = round(report_df["分數"].mean(), 2)
                     report_df["班級平均"] = c_mean
                     report_df["排序"] = report_df["分數"].rank(ascending=False, method='min').astype(int)
-                    st.write(f"📊 **{s_sub} ({s_rng}) 成績表** (班平均: {c_mean})")
-                    st.dataframe(report_df[["姓名", "分數", "班級平均", "排序"]].sort_values("排序"), use_container_width=True)
+                    final_df = report_df[["姓名", "分數", "班級平均", "排序"]].sort_values("排序")
+                    st.dataframe(final_df, use_container_width=True)
+                    # 儲存到 Session 以供下載
+                    st.session_state['df_rank'] = final_df
+                    st.session_state['info_rank'] = f"{s_sub}_{s_rng}"
                 else: st.info("無數據")
 
             elif stat_mode == "全班段考成績單":
                 s_type = st.selectbox("選擇段考別", ["第一次段考", "第二次段考", "第三次段考"])
                 report_df = df_grades[df_grades["考試類別"] == s_type].copy()
-                
                 if not report_df.empty:
-                    # 使用資料透視表轉置科目
                     pivot_df = report_df.pivot_table(index="姓名", columns="科目", values="分數", aggfunc="mean")
                     pivot_df["平均分數"] = round(pivot_df.mean(axis=1), 2)
                     pivot_df["排序"] = pivot_df["平均分數"].rank(ascending=False, method='min').astype(int)
-                    st.write(f"📊 **{s_type} 全班成績單**")
-                    st.dataframe(pivot_df.sort_values("排序"), use_container_width=True)
+                    final_total_df = pivot_df.sort_values("排序")
+                    st.dataframe(final_total_df, use_container_width=True)
+                    # 儲存到 Session 以供下載
+                    st.session_state['df_total'] = final_total_df
+                    st.session_state['info_total'] = s_type
                 else: st.info("無數據")
 
         # C. 數據監控
@@ -154,21 +160,69 @@ else:
 
         # D. 報告下載
         with tabs[3]:
-            st.subheader("下載正式分析報告")
-            if st.session_state['last_report']:
-                st.write(f"報告對象：{st.session_state['last_target']}")
-                if st.button("🛠️ 匯出 PDF"):
-                    try:
-                        pdf = FPDF()
-                        pdf.add_page()
-                        if os.path.exists("font.ttf"):
-                            pdf.add_font("ChineseFont", "", "font.ttf")
-                            pdf.set_font("ChineseFont", size=16)
+            st.subheader("📥 報表匯出中心")
+            rtype = st.radio("選擇要導出的報表類型：", ["1. AI 學習診斷分析", "2. 單科成績排行報表", "3. 全班段考成績單"])
+            
+            if st.button("🛠️ 產生並下載 PDF"):
+                try:
+                    pdf = FPDF()
+                    pdf.add_page()
+                    if not os.path.exists("font.ttf"):
+                        st.error("找不到字型檔 font.ttf，請確認已上傳。")
+                        st.stop()
+                    
+                    pdf.add_font("ChineseFont", "", "font.ttf")
+                    
+                    # 類型 1：AI 分析
+                    if rtype == "1. AI 學習診斷分析":
+                        if st.session_state['last_report']:
+                            pdf.set_font("ChineseFont", size=18)
                             pdf.cell(200, 10, txt=f"學業表現診斷報告 - {st.session_state['last_target']}", ln=True, align='C')
                             pdf.ln(10)
                             pdf.set_font("ChineseFont", size=12)
-                            clean_text = st.session_state['last_report'].replace('*', '')
-                            pdf.multi_cell(0, 10, txt=clean_text)
-                            st.download_button(label="📥 下載", data=bytes(pdf.output()), file_name=f"Report_{st.session_state['last_target']}.pdf", mime="application/pdf")
-                    except Exception as e: st.error(f"PDF 失敗：{e}")
-            else: st.warning("請先完成 AI 分析。")
+                            pdf.multi_cell(0, 10, txt=st.session_state['last_report'].replace('*', ''))
+                            fname = f"AI_Report_{st.session_state['last_target']}.pdf"
+                        else: st.warning("請先在 AI 統計分析分頁產生建議內容。"); st.stop()
+
+                    # 類型 2：單科排行
+                    elif rtype == "2. 單科成績排行報表":
+                        if st.session_state['df_rank'] is not None:
+                            df = st.session_state['df_rank']
+                            pdf.set_font("ChineseFont", size=16)
+                            pdf.cell(200, 10, txt=f"成績排行 - {st.session_state['info_rank']}", ln=True, align='C')
+                            pdf.ln(10)
+                            pdf.set_font("ChineseFont", size=10)
+                            # 表頭
+                            pdf.cell(45, 10, "姓名", 1); pdf.cell(45, 10, "分數", 1)
+                            pdf.cell(45, 10, "班級平均", 1); pdf.cell(45, 10, "排序", 1); pdf.ln()
+                            # 內容
+                            for _, row in df.iterrows():
+                                pdf.cell(45, 10, str(row["姓名"]), 1); pdf.cell(45, 10, str(row["分數"]), 1)
+                                pdf.cell(45, 10, str(row["班級平均"]), 1); pdf.cell(45, 10, str(row["排序"]), 1); pdf.ln()
+                            fname = f"Ranking_{st.session_state['info_rank']}.pdf"
+                        else: st.warning("請先去數據統計中心查看單科排行。"); st.stop()
+
+                    # 類型 3：段考成績單
+                    elif rtype == "3. 全班段考成績單":
+                        if st.session_state['df_total'] is not None:
+                            df = st.session_state['df_total'].reset_index()
+                            pdf.set_font("ChineseFont", size=14)
+                            pdf.cell(200, 10, txt=f"全班總成績單 - {st.session_state['info_total']}", ln=True, align='C')
+                            pdf.ln(10)
+                            pdf.set_font("ChineseFont", size=9)
+                            # 動態計算寬度
+                            cols = df.columns.tolist()
+                            w = 190 / len(cols)
+                            for col in cols: pdf.cell(w, 10, str(col), 1)
+                            pdf.ln()
+                            for _, row in df.iterrows():
+                                for col in cols:
+                                    val = str(row[col]) if not pd.isna(row[col]) else "-"
+                                    pdf.cell(w, 10, val, 1)
+                                pdf.ln()
+                            fname = f"Transcript_{st.session_state['info_total']}.pdf"
+                        else: st.warning("請先去數據統計中心查看段考成績單。"); st.stop()
+
+                    # 提供下載
+                    st.download_button(label="📥 點我領取檔案", data=bytes(pdf.output()), file_name=fname, mime="application/pdf")
+                except Exception as e: st.error(f"報表產出失敗：{e}")

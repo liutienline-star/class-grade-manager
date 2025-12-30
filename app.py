@@ -8,7 +8,7 @@ import pytz
 from collections import Counter
 import time
 
-# --- 1. 系統初始化配置 ---
+# --- 1. 系統初始化配置 (維持 1850px 與充足頂部間距) ---
 st.set_page_config(page_title="809班成績管理系統", layout="wide", page_icon="🏫")
 
 TW_TZ = pytz.timezone('Asia/Taipei')
@@ -16,32 +16,50 @@ SUBJECT_ORDER = ["國文", "英文", "數學", "自然", "歷史", "地理", "�
 SOC_COLS = ["歷史", "地理", "公民"]
 DIST_LABELS = ["0-10", "10-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70-80", "80-90", "90-100"]
 
-# --- 2. 完整視覺 CSS (維持極致寬屏與防切割設定) ---
+# --- 2. 完整視覺 CSS (整合 AI 報告樣式修正) ---
 st.markdown("""
     <style>
     .main { background-color: #fcfcfc; }
+    
+    /* 加大寬度並增加頂部 padding，給分頁標籤呼吸空間 */
     .block-container { 
         max-width: 1850px; 
         padding-top: 3.5rem !important; 
         padding-left: 3rem; 
         padding-right: 3rem; 
     }
+    
     html, body, [class*="st-"] { font-size: 1.15rem; font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; }
     
-    button[data-baseweb="tab"] { height: 60px !important; margin-top: 5px !important; padding-top: 10px !important; }
-    div[data-testid="stDataFrame"] td, div[data-testid="stDataFrame"] th { white-space: nowrap !important; }
+    /* 核心修復 - 防止 Tabs (分頁) 文字與圖標被裁切 */
+    button[data-baseweb="tab"] {
+        height: 60px !important; 
+        margin-top: 5px !important;
+        padding-top: 10px !important;
+    }
+    
+    /* 表格防擠壓 */
+    div[data-testid="stDataFrame"] td, 
+    div[data-testid="stDataFrame"] th {
+        white-space: nowrap !important;
+    }
 
+    /* 容器與圖框 */
     .filter-container { 
         background-color: #f1f3f6; padding: 25px; border-radius: 15px; 
         border: 3px solid #2d3436; margin-bottom: 25px; box-shadow: 6px 6px 0px rgba(0,0,0,0.05); 
     }
+
+    /* 成績指標卡 (Metric) */
     div[data-testid="stMetric"] { 
         background-color: #ffffff; padding: 25px !important; border-radius: 14px; 
-        border: 3px solid #2d3436; box-shadow: 7px 7px 0px rgba(0,0,0,0.1); min-height: 150px;
+        border: 3px solid #2d3436; box-shadow: 7px 7px 0px rgba(0,0,0,0.1);
+        min-height: 150px;
     }
-    div[data-testid="stMetricLabel"] { font-size: 1.3rem !important; font-weight: 800 !important; }
+    div[data-testid="stMetricLabel"] { font-size: 1.3rem !important; font-weight: 800 !important; color: #444; }
     div[data-testid="stMetricValue"] { font-size: 3rem !important; font-weight: 900 !important; color: #d63384 !important; }
 
+    /* 總標示專用立體方框 */
     .indicator-box { 
         background-color: #ffffff; padding: 20px; border-radius: 14px; 
         border: 3px solid #2d3436; text-align: center; box-shadow: 7px 7px 0px rgba(0,0,0,0.1);
@@ -50,8 +68,33 @@ st.markdown("""
     .indicator-label { font-size: 1.3rem; font-weight: 800; color: #444; }
     .indicator-value { font-size: 1.8rem; font-weight: 900; color: #0d6efd; }
 
-    .report-card { background: #ffffff; padding: 40px; border: 3px solid #2d3436; border-radius: 20px; line-height: 2.0; }
-    .stButton>button { border: 3px solid #2d3436 !important; border-radius: 12px !important; font-weight: 800 !important; box-shadow: 4px 4px 0px #2d3436 !important; }
+    /* ✨ AI 報告書樣式修正：解決文字背景色落差問題 */
+    .report-card { 
+        background: #ffffff !important; 
+        padding: 40px; 
+        border: 3px solid #2d3436; 
+        border-radius: 20px; 
+        line-height: 2.1; 
+        box-shadow: 8px 8px 0px rgba(0,0,0,0.05); 
+        color: #2d3436 !important; 
+    }
+    
+    /* 強制清除 AI Markdown 可能產生的深色區塊背景 */
+    .report-card code, .report-card pre { 
+        background-color: transparent !important; 
+        color: inherit !important; 
+        font-family: inherit !important;
+        padding: 0 !important;
+    }
+    .report-card p, .report-card li { margin-bottom: 1rem !important; }
+
+    /* 按鈕美化 */
+    .stButton>button {
+        border: 3px solid #2d3436 !important;
+        border-radius: 12px !important;
+        font-weight: 800 !important;
+        box-shadow: 4px 4px 0px #2d3436 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -136,7 +179,7 @@ if role == "📝 學生：成績錄入":
                 conn.update(spreadsheet=url, worksheet="成績資料", data=st.session_state['df_grades'])
                 st.warning("資料已撤回！"); time.sleep(0.5); st.rerun()
 
-# --- 7. 老師專區 (修正：補全平時成績查詢邏輯) ---
+# --- 7. 老師專區 ---
 else:
     if not st.session_state['authenticated']:
         st.markdown('<div class="filter-container" style="max-width:400px; margin: 100px auto;">', unsafe_allow_html=True)
@@ -210,24 +253,19 @@ else:
                     st.session_state['current_rpt_df'] = piv.reset_index()
                     st.session_state['current_rpt_name'] = f"班級總表_{stype}"
 
-            # --- ✨ 補全：個人平時成績歷次查詢邏輯 ---
             elif mode == "個人平時成績歷次":
                 df_stu = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
                 t_s = st.selectbox("👤 選擇學生", df_stu["姓名"].tolist())
-                # 篩選該學生且類別為平時考的資料
                 hist_df = f_df[(f_df["姓名"] == t_s) & (f_df["考試類別"] == "平時考")].copy()
                 if not hist_df.empty:
                     hist_df = hist_df.sort_values("日期", ascending=False)
-                    st.info(f"💡 以下顯示 {t_s} 在所選日期範圍內的平時測驗紀錄")
+                    st.info(f"💡 以下顯示 {t_s} 的平時測驗紀錄")
                     st.dataframe(hist_df[["日期", "科目", "分數", "考試範圍"]], hide_index=True, use_container_width=True)
                     st.session_state['current_rpt_df'] = hist_df[["日期", "科目", "分數", "考試範圍"]]
                     st.session_state['current_rpt_name'] = f"{t_s}_平時成績歷次"
-                else:
-                    st.warning(f"⚠️ 在此日期範圍內，找不到 {t_s} 的「平時考」紀錄。")
 
-        # --- AI 智慧診斷 (維持原設定) ---
         with tabs[1]: 
-            st.subheader("🤖 AI 智慧診斷 (精準參數)")
+            st.subheader("🤖 AI 智慧診斷")
             ai_name = st.selectbox("分析對象", df_raw["姓名"].unique(), key="ai_sel")
             ai_type = st.radio("數據源", ["最近一次段考", "近期平時考表現"], horizontal=True)
             if st.button("🚀 生成深度報告"):
@@ -247,7 +285,6 @@ else:
                         res = model.generate_content(f"你是台灣國中班導師，請根據數據分析表現並給予建議：\n{stats}")
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
 
-        # --- 報表輸出 (維持原設定) ---
         with tabs[2]: 
             st.subheader("📥 報表下載中心")
             if st.session_state['current_rpt_df'] is not None:

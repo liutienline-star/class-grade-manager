@@ -75,79 +75,85 @@ else:
             st.session_state['authenticated'] = False
             st.rerun()
 
-        tab_ai, tab_view, tab_pdf = st.tabs(["🤖 AI 統計分析", "📊 數據監控", "📄 報告下載"])
+        # 新增分頁：數據統計中心
+        tabs = st.tabs(["🤖 AI 統計分析", "📊 數據統計中心", "📋 數據監控", "📄 報告下載"])
 
-        with tab_ai:
+        # A. AI 分析
+        with tabs[0]:
             st.subheader("個人與班級表現對照分析")
             df_grades = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
             df_students = conn.read(spreadsheet=url, worksheet="學生名單", ttl=0)
             
-            # 篩選器
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                target_student = st.selectbox("1. 選擇學生", df_students["姓名"].tolist())
-            with col_b:
-                target_subject = st.selectbox("2. 選擇科目", df_grades["科目"].unique().tolist())
-            with col_c:
-                # 動取抓取該科目的考試範圍
-                ranges_available = df_grades[df_grades["科目"] == target_subject]["考試範圍"].unique().tolist()
-                target_range = st.selectbox("3. 選擇考試範圍", ranges_available)
+            c1, c2, c3 = st.columns(3)
+            with c1: target_student = st.selectbox("1. 選擇學生", df_students["姓名"].tolist(), key="ai_student")
+            with c2: target_subject = st.selectbox("2. 選擇科目", df_grades["科目"].unique().tolist(), key="ai_subject")
+            with c3: 
+                ranges = df_grades[df_grades["科目"] == target_subject]["考試範圍"].unique().tolist()
+                target_range = st.selectbox("3. 選擇範圍", ranges, key="ai_range")
 
-            # 統計邏輯
-            # A. 班級群體數據 (同科目、同範圍)
+            student_data = df_grades[(df_grades["姓名"] == target_student) & (df_grades["科目"] == target_subject) & (df_grades["考試範圍"] == target_range)]
             class_data = df_grades[(df_grades["科目"] == target_subject) & (df_grades["考試範圍"] == target_range)]
-            # B. 個人數據
-            student_data = class_data[class_data["姓名"] == target_student]
 
-            if not student_data.empty and len(class_data) > 0:
-                # 計算統計值
+            if not student_data.empty:
                 indiv_score = student_data["分數"].iloc[0]
                 class_mean = round(class_data["分數"].mean(), 2)
                 class_std = round(class_data["分數"].std(), 2) if len(class_data) > 1 else 0.0
                 
-                # 顯示簡易儀表板
-                st.write(f"📊 **統計數據預覽：{target_subject} ({target_range})**")
                 m1, m2, m3 = st.columns(3)
-                m1.metric("個人分數", f"{indiv_score} 分")
-                m2.metric("班級平均", f"{class_mean} 分")
+                m1.metric("個人分數", f"{indiv_score}")
+                m2.metric("班級平均", f"{class_mean}")
                 m3.metric("班級標準差", f"{class_std}")
 
                 if st.button("✨ 執行 AI 深度分析建議"):
-                    with st.spinner("正在生成報告..."):
-                        prompt = f"""你是專業導師。請根據以下統計數據分析『{target_student}』的表現並給予學習建議：
-                        - 分析學科：{target_subject}
-                        - 考試範圍：{target_range}
-                        - 個人分數：{indiv_score}
-                        - 班級平均：{class_mean}
-                        - 班級標準差：{class_std}
-                        
-                        請提供：
-                        1. 相對位置評估 (根據平均與標準差判斷優劣勢)
-                        2. 該範圍的知識點掌握建議
-                        3. 具體的後續練習方向。
-                        請用繁體中文撰寫，內容約 250 字。"""
-                        
-                        response = model.generate_content(prompt)
-                        st.session_state['last_report'] = response.text
-                        st.session_state['last_target'] = target_student
-                        st.markdown("---")
-                        st.write(st.session_state['last_report'])
-                        
-                        # 自動備份
-                        try:
-                            df_log = conn.read(spreadsheet=url, worksheet="AI分析紀錄", ttl=0)
-                            new_log = pd.DataFrame([{"分析時間": datetime.now().strftime("%Y-%m-%d %H:%M"), "學號": df_students[df_students["姓名"] == target_student]["學號"].values[0], "姓名": target_student, "AI分析內容": response.text}])
-                            conn.update(spreadsheet=url, worksheet="AI分析紀錄", data=pd.concat([df_log, new_log], ignore_index=True))
-                        except: pass
-            else:
-                st.warning("查無對應的考試數據，請確認學生姓名、科目與範圍是否匹配。")
+                    prompt = f"分析『{target_student}』在{target_subject}({target_range})的表現。個人{indiv_score}分，班級平均{class_mean}，標差{class_std}。請給予繁體中文250字建議。"
+                    response = model.generate_content(prompt)
+                    st.session_state['last_report'] = response.text
+                    st.session_state['last_target'] = target_student
+                    st.markdown(response.text)
+            else: st.warning("尚無符合條件的數據。")
 
-        with tab_view:
+        # B. 數據統計中心 (新增需求)
+        with tabs[1]:
+            st.subheader("📈 班級成績統計與排序")
+            df_grades = conn.read(spreadsheet=url, worksheet="成績資料", ttl=0)
+            
+            stat_mode = st.radio("統計模式：", ["單科成績排行", "全班段考成績單"])
+            
+            if stat_mode == "單科成績排行":
+                col_sub, col_rng = st.columns(2)
+                with col_sub: s_sub = st.selectbox("選擇科目", df_grades["科目"].unique().tolist(), key="stat_sub")
+                with col_rng: s_rng = st.selectbox("選擇考試範圍", df_grades[df_grades["科目"] == s_sub]["考試範圍"].unique().tolist(), key="stat_rng")
+                
+                report_df = df_grades[(df_grades["科目"] == s_sub) & (df_grades["考試範圍"] == s_rng)].copy()
+                if not report_df.empty:
+                    c_mean = round(report_df["分數"].mean(), 2)
+                    report_df["班級平均"] = c_mean
+                    report_df["排序"] = report_df["分數"].rank(ascending=False, method='min').astype(int)
+                    st.write(f"📊 **{s_sub} ({s_rng}) 成績表** (班平均: {c_mean})")
+                    st.dataframe(report_df[["姓名", "分數", "班級平均", "排序"]].sort_values("排序"), use_container_width=True)
+                else: st.info("無數據")
+
+            elif stat_mode == "全班段考成績單":
+                s_type = st.selectbox("選擇段考別", ["第一次段考", "第二次段考", "第三次段考"])
+                report_df = df_grades[df_grades["考試類別"] == s_type].copy()
+                
+                if not report_df.empty:
+                    # 使用資料透視表轉置科目
+                    pivot_df = report_df.pivot_table(index="姓名", columns="科目", values="分數", aggfunc="mean")
+                    pivot_df["平均分數"] = round(pivot_df.mean(axis=1), 2)
+                    pivot_df["排序"] = pivot_df["平均分數"].rank(ascending=False, method='min').astype(int)
+                    st.write(f"📊 **{s_type} 全班成績單**")
+                    st.dataframe(pivot_df.sort_values("排序"), use_container_width=True)
+                else: st.info("無數據")
+
+        # C. 數據監控
+        with tabs[2]:
             st.subheader("原始資料檢視")
             target_sheet = st.selectbox("選取工作表", ["學生名單", "科目設定", "成績資料", "AI分析紀錄"])
             st.dataframe(conn.read(spreadsheet=url, worksheet=target_sheet, ttl=0), use_container_width=True)
 
-        with tab_pdf:
+        # D. 報告下載
+        with tabs[3]:
             st.subheader("下載正式分析報告")
             if st.session_state['last_report']:
                 st.write(f"報告對象：{st.session_state['last_target']}")
@@ -163,7 +169,6 @@ else:
                             pdf.set_font("ChineseFont", size=12)
                             clean_text = st.session_state['last_report'].replace('*', '')
                             pdf.multi_cell(0, 10, txt=clean_text)
-                            st.download_button(label="📥 點我下載", data=bytes(pdf.output()), file_name=f"Report_{st.session_state['last_target']}.pdf", mime="application/pdf")
-                        else: st.error("找不到字型檔 font.ttf")
+                            st.download_button(label="📥 下載", data=bytes(pdf.output()), file_name=f"Report_{st.session_state['last_target']}.pdf", mime="application/pdf")
                     except Exception as e: st.error(f"PDF 失敗：{e}")
             else: st.warning("請先完成 AI 分析。")

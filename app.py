@@ -52,9 +52,14 @@ if role == "學生專區 (成績錄入)":
         with col1:
             name = st.selectbox("請選擇姓名", df_students["姓名"].tolist())
             subject = st.selectbox("科目名稱", df_courses["科目名稱"].tolist())
+            # 修正需求 3: 新增考試範圍輸入
+            exam_range = st.text_input("考試範圍 (例如：第一單元、L1-L3)", placeholder="請輸入本次考試涵蓋範圍")
+            
         with col2:
-            score = st.number_input("得分 (0-100)", min_value=0.0, max_value=100.0, step=0.5)
-            exam_type = st.selectbox("考試類別", ["小考", "期中考", "期末考"])
+            # 修正需求 1: 分數不要有小數點 (step=1)
+            score = st.number_input("得分 (0-100)", min_value=0, max_value=100, step=1, value=0)
+            # 修正需求 2: 更新考試類別
+            exam_type = st.selectbox("考試類別", ["平時考", "第一次段考", "第二次段考", "第三次段考"])
         
         if st.form_submit_button("確認提交成績"):
             try:
@@ -64,13 +69,14 @@ if role == "學生專區 (成績錄入)":
                     "學號": sid,
                     "姓名": name,
                     "科目": subject,
-                    "分數": score,
-                    "考試類別": exam_type
+                    "分數": int(score),
+                    "考試類別": exam_type,
+                    "考試範圍": exam_range # 儲存新欄位
                 }])
                 # 更新試算表
                 updated_grades = pd.concat([df_grades, new_row], ignore_index=True)
                 conn.update(spreadsheet=url, worksheet="成績資料", data=updated_grades)
-                st.success(f"✅ 已成功記錄 {name} 的成績。")
+                st.success(f"✅ 已成功記錄 {name} 的成績（{exam_type}）。")
             except Exception as e:
                 st.error(f"資料儲存失敗：{e}")
 
@@ -109,10 +115,10 @@ else:
             if not personal_grades.empty:
                 if st.button("產生 AI 分析建議"):
                     with st.spinner("Gemini AI 分析中..."):
-                        # 建構提示詞 (Prompt)
+                        # 建構提示詞 (包含考試範圍資訊以利 AI 判斷細節)
                         prompt = f"""你是導師，請分析該生的學業數據並給予建議。
                         學生姓名：{target_student}
-                        歷次成績：{personal_grades.to_string(index=False)}
+                        歷次成績與範圍：{personal_grades.to_string(index=False)}
                         請提供：1.現況分析 2.弱點提醒 3.具體改進措施。
                         請用繁體中文撰寫，約 200 字。"""
                         
@@ -157,7 +163,6 @@ else:
                         pdf = FPDF()
                         pdf.add_page()
                         
-                        # 檢查字型檔
                         if os.path.exists("font.ttf"):
                             pdf.add_font("ChineseFont", "", "font.ttf")
                             pdf.set_font("ChineseFont", size=16)
@@ -165,7 +170,6 @@ else:
                             pdf.ln(10)
                             
                             pdf.set_font("ChineseFont", size=12)
-                            # 清理 AI 文字標記
                             clean_text = st.session_state['last_report'].replace('*', '')
                             pdf.multi_cell(0, 10, txt=clean_text)
                             

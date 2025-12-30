@@ -3,4 +3,5 @@ st-gsheets-connection
 google-generativeai
 pandas
 numpy
+matplotlib
 fpdf2

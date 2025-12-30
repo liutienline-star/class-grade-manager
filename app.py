@@ -16,12 +16,11 @@ SUBJECT_ORDER = ["國文", "英文", "數學", "自然", "歷史", "地理", "�
 SOC_COLS = ["歷史", "地理", "公民"]
 DIST_LABELS = ["0-10", "10-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70-80", "80-90", "90-100"]
 
-# --- 2. 完整視覺 CSS (整合 AI 報告樣式修正) ---
+# --- 2. 完整視覺 CSS ---
 st.markdown("""
     <style>
     .main { background-color: #fcfcfc; }
     
-    /* 加大寬度並增加頂部 padding，給分頁標籤呼吸空間 */
     .block-container { 
         max-width: 1850px; 
         padding-top: 3.5rem !important; 
@@ -31,26 +30,22 @@ st.markdown("""
     
     html, body, [class*="st-"] { font-size: 1.15rem; font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; }
     
-    /* 核心修復 - 防止 Tabs (分頁) 文字與圖標被裁切 */
     button[data-baseweb="tab"] {
         height: 60px !important; 
         margin-top: 5px !important;
         padding-top: 10px !important;
     }
     
-    /* 表格防擠壓 */
     div[data-testid="stDataFrame"] td, 
     div[data-testid="stDataFrame"] th {
         white-space: nowrap !important;
     }
 
-    /* 容器與圖框 */
     .filter-container { 
         background-color: #f1f3f6; padding: 25px; border-radius: 15px; 
         border: 3px solid #2d3436; margin-bottom: 25px; box-shadow: 6px 6px 0px rgba(0,0,0,0.05); 
     }
 
-    /* 成績指標卡 (Metric) */
     div[data-testid="stMetric"] { 
         background-color: #ffffff; padding: 25px !important; border-radius: 14px; 
         border: 3px solid #2d3436; box-shadow: 7px 7px 0px rgba(0,0,0,0.1);
@@ -59,7 +54,6 @@ st.markdown("""
     div[data-testid="stMetricLabel"] { font-size: 1.3rem !important; font-weight: 800 !important; color: #444; }
     div[data-testid="stMetricValue"] { font-size: 3rem !important; font-weight: 900 !important; color: #d63384 !important; }
 
-    /* 總標示專用立體方框 */
     .indicator-box { 
         background-color: #ffffff; padding: 20px; border-radius: 14px; 
         border: 3px solid #2d3436; text-align: center; box-shadow: 7px 7px 0px rgba(0,0,0,0.1);
@@ -68,7 +62,6 @@ st.markdown("""
     .indicator-label { font-size: 1.3rem; font-weight: 800; color: #444; }
     .indicator-value { font-size: 1.8rem; font-weight: 900; color: #0d6efd; }
 
-    /* ✨ AI 報告書樣式修正：解決文字背景色落差問題 */
     .report-card { 
         background: #ffffff !important; 
         padding: 40px; 
@@ -79,7 +72,6 @@ st.markdown("""
         color: #2d3436 !important; 
     }
     
-    /* 強制清除 AI Markdown 可能產生的深色區塊背景 */
     .report-card code, .report-card pre { 
         background-color: transparent !important; 
         color: inherit !important; 
@@ -88,7 +80,6 @@ st.markdown("""
     }
     .report-card p, .report-card li { margin-bottom: 1rem !important; }
 
-    /* 按鈕美化 */
     .stButton>button {
         border: 3px solid #2d3436 !important;
         border-radius: 12px !important;
@@ -189,7 +180,8 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
     
     if st.session_state['authenticated']:
-        tabs = st.tabs(["📊 數據查詢中心", "🤖 AI 智慧診斷", "📥 報表輸出中心"])
+        # 已將 tabs[2] 報表輸出中心 移除
+        tabs = st.tabs(["📊 數據查詢中心", "🤖 AI 智慧診斷"])
         df_raw = st.session_state['df_grades'].copy()
         df_raw["分數"] = pd.to_numeric(df_raw["分數"], errors='coerce')
         df_raw['日期'] = pd.to_datetime(df_raw['時間戳記'], errors='coerce').dt.date
@@ -238,8 +230,6 @@ else:
                     with m4: st.markdown(f'<div class="indicator-box"><div class="indicator-label">🏆 總標示</div><div class="indicator-value">{calculate_overall_indicator(grades_for_ind)}</div></div>', unsafe_allow_html=True)
                     m5.metric("🎖️ 排名", f"第 {curr_rank} 名")
                     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
-                    st.session_state['current_rpt_df'] = pd.DataFrame(rows)
-                    st.session_state['current_rpt_name'] = f"{t_s}_{t_e}"
 
             elif mode == "班級段考總表":
                 stype = st.selectbox("📊 選考別", ["第一次段考", "第二次段考", "第三次段考"])
@@ -250,8 +240,6 @@ else:
                     piv["排名"] = piv["總平均"].rank(ascending=False, method='min').astype(int)
                     piv = piv.sort_values("排名")
                     st.dataframe(piv, use_container_width=True)
-                    st.session_state['current_rpt_df'] = piv.reset_index()
-                    st.session_state['current_rpt_name'] = f"班級總表_{stype}"
 
             elif mode == "個人平時成績歷次":
                 df_stu = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
@@ -261,8 +249,6 @@ else:
                     hist_df = hist_df.sort_values("日期", ascending=False)
                     st.info(f"💡 以下顯示 {t_s} 的平時測驗紀錄")
                     st.dataframe(hist_df[["日期", "科目", "分數", "考試範圍"]], hide_index=True, use_container_width=True)
-                    st.session_state['current_rpt_df'] = hist_df[["日期", "科目", "分數", "考試範圍"]]
-                    st.session_state['current_rpt_name'] = f"{t_s}_平時成績歷次"
 
         with tabs[1]: 
             st.subheader("🤖 AI 智慧診斷")
@@ -284,11 +270,3 @@ else:
                     with st.spinner("AI 解析數據中..."):
                         res = model.generate_content(f"你是台灣國中班導師，請根據數據分析表現並給予建議：\n{stats}")
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
-
-        with tabs[2]: 
-            st.subheader("📥 報表下載中心")
-            if st.session_state['current_rpt_df'] is not None:
-                st.markdown(f"**📄 當前：{st.session_state['current_rpt_name']}**")
-                st.dataframe(st.session_state['current_rpt_df'], use_container_width=True)
-                csv = st.session_state['current_rpt_df'].to_csv(index=False).encode('utf-8-sig')
-                st.download_button("📥 下載 CSV (Excel 相容)", csv, f"{st.session_state['current_rpt_name']}.csv", "text/csv")

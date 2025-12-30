@@ -281,7 +281,7 @@ else:
                         c_avg = target_data[target_data['科目']==s]['分數'].mean()
                         c_std = target_data[target_data['科目']==s]['分數'].std()
                         stats.append(f"- {s}: 個人={format_num(s_avg)}, 班均={format_num(c_avg)}, 標準差(σ)={format_num(c_std)}")
- with st.spinner("AI 解析數據中..."):
+        with st.spinner("AI 解析數據中..."):
                 # 修正後的 AI 指令：語氣自然、強調數據解釋與標準差意義
                 ai_prompt = f"""
                 你是一位台灣國中班導師。說話風格簡單輕鬆、直接切入重點，不需要太過官腔或做作的鼓勵。

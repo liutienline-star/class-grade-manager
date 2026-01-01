@@ -80,7 +80,7 @@ role = st.sidebar.radio("🔑 角色切換：", ["📝 學生：成績錄入", "
 
 # --- 6. 學生端：完整功能 (錄入、預覽、撤回) ---
 if role == "📝 學生：成績錄入":
-    st.markdown('<div class="title-box">📝 學生成績錄入系統</div>', unsafe_allow_html=True)
+    st.markdown('<div class="title-box">📝 學生成績登錄系統</div>', unsafe_allow_html=True)
     df_stu_list = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
     df_course_list = conn.read(spreadsheet=url, worksheet="科目設定", ttl=600)
     
@@ -103,7 +103,7 @@ if role == "📝 學生：成績錄入":
             st.success("✅ 資料錄入成功！"); time.sleep(0.5); st.rerun()
 
     st.markdown("---")
-    st.subheader("📋 最近錄入預覽")
+    st.subheader("📋 最近登錄預覽")
     my_records = st.session_state['df_grades'][st.session_state['df_grades']["姓名"] == name].copy()
     if not my_records.empty:
         st.dataframe(my_records.sort_values("時間戳記", ascending=False).head(5), hide_index=True, use_container_width=True)

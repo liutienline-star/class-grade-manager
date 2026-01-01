@@ -76,10 +76,10 @@ if 'authenticated' not in st.session_state: st.session_state['authenticated'] = 
 if 'ai_sync_data' not in st.session_state: st.session_state['ai_sync_data'] = {"title": "", "content": "", "mode": "", "bg": ""}
 
 # --- 5. 側邊導覽 ---
-role = st.sidebar.radio("🔑 角色切換：", ["📝 學生：成績錄入", "📊 老師：數據中心"])
+role = st.sidebar.radio("🔑 角色切換：", ["📝 學生：成績登錄", "📊 老師：數據中心"])
 
 # --- 6. 學生端：完整功能 (錄入、預覽、撤回) ---
-if role == "📝 學生：成績錄入":
+if role == "📝 學生：成績登錄":
     st.markdown('<div class="title-box">📝 學生成績登錄系統</div>', unsafe_allow_html=True)
     df_stu_list = conn.read(spreadsheet=url, worksheet="學生名單", ttl=600)
     df_course_list = conn.read(spreadsheet=url, worksheet="科目設定", ttl=600)

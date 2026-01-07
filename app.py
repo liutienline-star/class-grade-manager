@@ -250,7 +250,7 @@ else:
                         elif data['mode'] == "daily":
                             p = f"請對比班級平均背景 {data['bg']}，診斷此學生的平時表現 {data['content']} 並給予讀書策略。"
                         else:
-                            p = f"請根據以下詳細段考數據（含平均數、標準差、考試範圍與排名）進行綜合診斷與家長通知建議：\n{data['content']}"
+                            p = f"請根據以下詳細段考數據（含平均數、標準差與排名）進行綜合診斷與家長通知建議：\n{data['content']}"
                         
                         res = model.generate_content(p)
                         st.markdown(f'<div class="report-card">{res.text}</div>', unsafe_allow_html=True)
